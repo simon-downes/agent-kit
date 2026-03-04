@@ -1,0 +1,297 @@
+"""CLI interface for oauth tool."""
+
+import json
+import os
+import secrets
+import subprocess
+import sys
+import webbrowser
+
+import click
+from rich.console import Console
+
+from oauth.flow import (
+    build_authorization_url,
+    exchange_code_for_tokens,
+    generate_pkce,
+    register_client,
+    revoke_token,
+    run_callback_server,
+)
+from oauth.provider import get_provider_config, get_provider_endpoints
+
+console = Console()
+
+
+def get_kv_value(key: str) -> str | None:
+    """Get value from kv store."""
+    try:
+        result = subprocess.run(["kv", "get", key], capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except FileNotFoundError:
+        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
+        sys.exit(1)
+
+
+def set_kv_value(key: str, value: str) -> None:
+    """Set value in kv store."""
+    try:
+        subprocess.run(["kv", "set", key, value], check=True, capture_output=True)
+    except FileNotFoundError:
+        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        console.print(f"[red]Error:[/red] Failed to store tokens: {e}")
+        sys.exit(1)
+
+
+def delete_kv_value(key: str) -> bool:
+    """Delete value from kv store. Returns True if key existed."""
+    try:
+        result = subprocess.run(["kv", "rm", key], capture_output=True, check=False)
+        return result.returncode == 0
+    except FileNotFoundError:
+        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
+        sys.exit(1)
+
+
+@click.group()
+def main() -> None:
+    """OAuth - Authenticate with SaaS providers."""
+    pass
+
+
+@main.command()
+@click.argument("provider")
+@click.option("--headless", is_flag=True, help="Don't open browser automatically")
+def login(provider: str, headless: bool) -> None:
+    """Authenticate with a provider."""
+    try:
+        config = get_provider_config(provider)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+    port = int(os.environ.get("OAUTH_LOCAL_PORT", "3000"))
+    redirect_uri = f"http://localhost:{port}/callback"
+
+    try:
+        console.print(f"🔍 Discovering OAuth endpoints for {config.get('name', provider)}...")
+        endpoints = get_provider_endpoints(config)
+
+        if not endpoints.get("registration_endpoint"):
+            console.print("[red]Error:[/red] Provider does not support dynamic client registration")
+            sys.exit(1)
+
+        console.print("📝 Registering OAuth client...")
+        client_creds = register_client(
+            endpoints["registration_endpoint"],
+            redirect_uri,
+            f"{config.get('name', provider)} CLI",
+        )
+        client_id = client_creds["client_id"]
+
+        console.print("🔐 Generating PKCE parameters...")
+        verifier, challenge = generate_pkce()
+        state = secrets.token_urlsafe(32)
+
+        auth_url = build_authorization_url(
+            endpoints["authorization_endpoint"],
+            client_id,
+            redirect_uri,
+            state,
+            challenge,
+            config.get("auth_params"),
+        )
+
+        console.print(f"\n🌐 Authorization URL: {auth_url}")
+        if not headless:
+            console.print("Opening browser...")
+            webbrowser.open(auth_url)
+        else:
+            console.print("Please visit the URL above to authorize.\n")
+
+        console.print(f"⏳ Waiting for callback on port {port}...")
+        code, callback_state, error = run_callback_server(port)
+
+        if error:
+            console.print(f"[red]❌ Authorization failed:[/red] {error}")
+            sys.exit(1)
+
+        if not code:
+            console.print("[red]❌ No authorization code received[/red]")
+            sys.exit(1)
+
+        if callback_state != state:
+            console.print("[red]❌ State mismatch - possible CSRF attack[/red]")
+            sys.exit(1)
+
+        console.print("✅ Authorization code received")
+        console.print("🔄 Exchanging code for tokens...")
+
+        tokens = exchange_code_for_tokens(
+            endpoints["token_endpoint"], client_id, code, verifier, redirect_uri
+        )
+
+        token_data = {
+            "access_token": tokens["access_token"],
+            "refresh_token": tokens.get("refresh_token"),
+            "token_type": tokens["token_type"],
+            "expires_in": tokens.get("expires_in"),
+            "client_id": client_id,
+            "token_endpoint": endpoints["token_endpoint"],
+            "revocation_endpoint": endpoints.get("revocation_endpoint"),
+        }
+
+        kv_key = f"oauth-{provider}"
+        set_kv_value(kv_key, json.dumps(token_data))
+
+        console.print(f"\n✅ Tokens saved to kv store (key: [cyan]{kv_key}[/cyan])")
+        console.print("🎉 Authentication complete!")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("provider")
+def logout(provider: str) -> None:
+    """Logout from a provider (revoke tokens and remove from kv)."""
+    kv_key = f"oauth-{provider}"
+
+    token_json = get_kv_value(kv_key)
+    if not token_json:
+        console.print(f"[yellow]Not authenticated with {provider}[/yellow]")
+        return
+
+    try:
+        token_data = json.loads(token_json)
+
+        if token_data.get("revocation_endpoint") and token_data.get("access_token"):
+            console.print("🔄 Revoking tokens...")
+            success = revoke_token(
+                token_data["revocation_endpoint"],
+                token_data["access_token"],
+                token_data["client_id"],
+            )
+            if success:
+                console.print("✅ Tokens revoked")
+            else:
+                console.print("[yellow]⚠️  Token revocation failed (continuing anyway)[/yellow]")
+
+        delete_kv_value(kv_key)
+        console.print("✅ Removed credentials from kv store")
+        console.print(f"🎉 Logged out from {provider}")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("provider")
+def status(provider: str) -> None:
+    """Check authentication status for a provider."""
+    kv_key = f"oauth-{provider}"
+
+    token_json = get_kv_value(kv_key)
+    if not token_json:
+        console.print(f"[yellow]Not authenticated with {provider}[/yellow]")
+        sys.exit(1)
+
+    try:
+        token_data = json.loads(token_json)
+
+        console.print(f"[green]✓[/green] Authenticated with {provider}")
+        console.print(f"\nToken type: {token_data.get('token_type', 'unknown')}")
+
+        if token_data.get("expires_in"):
+            console.print(f"Expires in: {token_data['expires_in']} seconds")
+
+        if token_data.get("refresh_token"):
+            console.print("Refresh token: [green]available[/green]")
+        else:
+            console.print("Refresh token: [yellow]not available[/yellow]")
+
+        console.print(f"\nStored in kv: [cyan]{kv_key}[/cyan]")
+
+    except json.JSONDecodeError:
+        console.print("[red]Error:[/red] Invalid token data in kv store")
+        sys.exit(1)
+
+
+@main.command()
+@click.argument("provider")
+def refresh(provider: str) -> None:
+    """Refresh access token using refresh token."""
+    from oauth.flow import refresh_access_token
+
+    kv_key = f"oauth-{provider}"
+
+    token_json = get_kv_value(kv_key)
+    if not token_json:
+        console.print(f"[red]Error:[/red] Not authenticated with {provider}")
+        console.print("\nRun: [cyan]uvx oauth login {provider}[/cyan]")
+        sys.exit(2)
+
+    try:
+        token_data = json.loads(token_json)
+
+        if not token_data.get("refresh_token"):
+            console.print("[red]Error:[/red] No refresh token available")
+            console.print("\nYou need to re-authenticate:")
+            console.print(f"[cyan]uvx oauth login {provider}[/cyan]")
+            sys.exit(2)
+
+        if not token_data.get("token_endpoint"):
+            console.print("[red]Error:[/red] Token endpoint not found in stored credentials")
+            sys.exit(2)
+
+        console.print("🔄 Refreshing access token...")
+
+        new_tokens = refresh_access_token(
+            token_data["token_endpoint"],
+            token_data["client_id"],
+            token_data["refresh_token"],
+        )
+
+        # Update stored credentials with new access token
+        token_data["access_token"] = new_tokens["access_token"]
+        if "expires_in" in new_tokens:
+            token_data["expires_in"] = new_tokens["expires_in"]
+        # Some providers issue new refresh tokens
+        if "refresh_token" in new_tokens:
+            token_data["refresh_token"] = new_tokens["refresh_token"]
+
+        set_kv_value(kv_key, json.dumps(token_data))
+
+        console.print(f"✅ Access token refreshed for {provider}")
+
+    except json.JSONDecodeError:
+        console.print("[red]Error:[/red] Invalid token data in kv store")
+        sys.exit(2)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to refresh token: {e}")
+        console.print("\nYou may need to re-authenticate:")
+        console.print(f"[cyan]uvx oauth login {provider}[/cyan]")
+        sys.exit(2)
+
+
+@main.command()
+@click.argument("provider")
+def show(provider: str) -> None:
+    """Show stored tokens for a provider."""
+    kv_key = f"oauth-{provider}"
+
+    token_json = get_kv_value(kv_key)
+    if not token_json:
+        sys.exit(2)
+
+    print(token_json)
+
+
+if __name__ == "__main__":
+    main()
