@@ -24,10 +24,10 @@ CLI tool for searching and fetching Notion pages via MCP.
 
 ```bash
 # Install globally
-uv tool install ./notion
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory notion
 
 # Or run directly without installing
-uvx --from ./notion notion --help
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory notion notion --help
 ```
 
 ## Authentication
@@ -35,7 +35,11 @@ uvx --from ./notion notion --help
 Before using the notion tool, authenticate with Notion:
 
 ```bash
-uvx oauth login notion
+# If oauth is installed
+oauth login notion
+
+# Or using uvx
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth oauth login notion
 ```
 
 This will open your browser to authorize the application and store credentials securely.
@@ -115,6 +119,8 @@ notion search "api docs" --json | jq '.[] | select(.type == "text")'
 | 3 | Notion API error (page not found, rate limit, etc.) |
 
 ## Examples
+
+**Note:** Examples assume tools are installed globally. If using `uvx`, prefix commands with the full `uvx --from git+...` syntax shown in the installation section.
 
 ### Save Page to File
 

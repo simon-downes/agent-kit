@@ -20,10 +20,10 @@ A simple, fast key-value store for the command line.
 
 ```bash
 # Install globally
-uv tool install ./kv
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory kv
 
 # Or run directly without installing
-uvx --from ./kv kv --help
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory kv kv --help
 ```
 
 ## Usage

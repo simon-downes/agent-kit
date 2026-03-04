@@ -61,17 +61,34 @@ Shared dependencies are managed at the workspace level to ensure consistency.
 
 ```bash
 # Clone and sync dependencies
+git clone https://github.com/simon-downes/cli-tools.git
+cd cli-tools
 uv sync
+```
+
+### Installing Tools for Development
+
+```bash
+# Install from local directory
+uv tool install ./<tool-name>
+
+# Or run without installing
+uvx --from ./<tool-name> <tool-name> --help
 ```
 
 ### Installing Tools
 
 ```bash
 # Install a tool globally
-uv tool install ./<tool-name>
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory <tool-name>
 
 # Or run without installing
-uvx --from ./<tool-name> <tool-name> --help
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory <tool-name> <tool-name> --help
+
+# Examples
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory kv
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory notion
 ```
 
 ### Running Tests

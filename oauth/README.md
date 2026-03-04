@@ -25,10 +25,10 @@ OAuth authentication for SaaS providers.
 
 ```bash
 # Install globally
-uv tool install ./oauth
+uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth
 
 # Or run directly without installing
-uvx --from ./oauth oauth --help
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth oauth --help
 ```
 
 ## Usage
@@ -182,6 +182,11 @@ kv get oauth-notion | jq .
 ```
 
 ## Examples
+
+**Note:** Examples assume `oauth` is installed globally. If using `uvx`, prefix commands with:
+```bash
+uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth oauth <command>
+```
 
 ### Basic Workflow
 
