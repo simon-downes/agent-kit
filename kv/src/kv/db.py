@@ -12,12 +12,15 @@ def get_db_path() -> Path:
     db_path = os.environ.get("KV_DB")
     if db_path:
         return Path(db_path)
-    return Path.home() / ".kv"
+    return Path.home() / ".cli-tools" / "kv" / "db"
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
     """Initialize database and return connection."""
     is_new = not db_path.exists()
+
+    # Ensure parent directory exists
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(str(db_path))
     conn.execute("""

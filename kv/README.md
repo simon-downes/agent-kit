@@ -163,7 +163,7 @@ kv set ends-dash- "value"       # ✗ Can't end with hyphen
 
 ## Database Location
 
-By default, `kv` stores data in `~/.kv`. You can override this with the `KV_DB` environment variable:
+By default, `kv` stores data in `~/.cli-tools/kv/db`. You can override this with the `KV_DB` environment variable:
 
 ```bash
 # Use custom database location
