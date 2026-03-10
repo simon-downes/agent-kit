@@ -61,7 +61,7 @@ async def _search(query: str, output_json: bool, raw: bool) -> None:
             console.print("\nYour credentials may have expired. Try re-authenticating:")
             console.print("[cyan]uvx oauth login notion[/cyan]")
             sys.exit(2)
-        
+
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(3)
     finally:
@@ -119,7 +119,7 @@ async def _fetch(page_id_or_url: str, output_json: bool, raw: bool) -> None:
             console.print("\nYour credentials may have expired. Try re-authenticating:")
             console.print("[cyan]uvx oauth login notion[/cyan]")
             sys.exit(2)
-        
+
         console.print(f"[red]Error:[/red] {e}")
         sys.exit(3)
     finally:

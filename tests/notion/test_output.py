@@ -1,6 +1,6 @@
 """Tests for output formatting."""
 
-from agent_kit.notion.output import extract_decoded_data, format_json, format_markdown_raw
+from agent_kit.notion.output import format_json, format_markdown_raw
 
 
 def test_format_json():

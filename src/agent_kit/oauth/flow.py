@@ -101,9 +101,7 @@ def revoke_token(revocation_endpoint: str, token: str, client_id: str) -> bool:
         return False
 
 
-def refresh_access_token(
-    token_endpoint: str, client_id: str, refresh_token: str
-) -> dict[str, Any]:
+def refresh_access_token(token_endpoint: str, client_id: str, refresh_token: str) -> dict[str, Any]:
     """Refresh access token using refresh token."""
     data = {
         "grant_type": "refresh_token",

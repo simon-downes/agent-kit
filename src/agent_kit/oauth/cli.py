@@ -18,7 +18,7 @@ from agent_kit.oauth.flow import (
     revoke_token,
     run_callback_server,
 )
-from agent_kit.oauth.provider import get_provider_config, get_provider_endpoints
+from agent_kit.oauth.provider import get_provider_config, get_provider_endpoints, load_providers
 
 console = Console()
 
@@ -27,6 +27,28 @@ console = Console()
 def main() -> None:
     """OAuth - Authenticate with SaaS providers."""
     pass
+
+
+@main.command("list")
+def list_providers() -> None:
+    """List configured providers and authentication status."""
+    from rich.table import Table
+
+    providers = load_providers()
+
+    table = Table(show_header=True)
+    table.add_column("Provider")
+    table.add_column("Status")
+
+    for provider_id in providers:
+        kv_key = f"oauth-{provider_id}"
+        token_json = db.get(kv_key)
+
+        status = "[green]✓ Authenticated[/green]" if token_json else "[dim]Not authenticated[/dim]"
+
+        table.add_row(provider_id, status)
+
+    console.print(table)
 
 
 @main.command()
@@ -252,7 +274,7 @@ def show(provider: str) -> None:
     """Show stored tokens for a provider."""
     kv_key = f"oauth-{provider}"
 
-    token_json = get_kv_value(kv_key)
+    token_json = db.get(kv_key)
     if not token_json:
         sys.exit(2)
 

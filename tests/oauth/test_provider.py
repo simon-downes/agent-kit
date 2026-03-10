@@ -1,6 +1,7 @@
 """Tests for provider configuration."""
 
 import pytest
+
 from agent_kit.oauth.provider import get_provider_config, load_providers
 
 

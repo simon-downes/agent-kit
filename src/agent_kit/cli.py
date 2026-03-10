@@ -3,8 +3,8 @@
 import click
 
 from agent_kit.kv.cli import main as kv_cli
-from agent_kit.oauth.cli import main as oauth_cli
 from agent_kit.notion.cli import main as notion_cli
+from agent_kit.oauth.cli import main as oauth_cli
 
 
 @click.group()

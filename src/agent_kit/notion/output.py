@@ -64,4 +64,3 @@ def format_markdown_terminal(data: list[Any], console: Console) -> None:
     if markdown_text:
         md = Markdown(markdown_text)
         console.print(md)
-
