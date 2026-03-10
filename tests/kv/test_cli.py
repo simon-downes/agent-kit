@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from click.testing import CliRunner
-from kv.cli import main
+from agent_kit.kv.cli import main
 
 
 def test_help():
@@ -58,7 +58,7 @@ def test_invalid_key():
         env = {"KV_DB": db_path}
         result = runner.invoke(main, ["set", "INVALID", "value"], env=env)
         assert result.exit_code == 1
-        assert "lower-kebab-case" in result.output
+        assert "Invalid key" in result.output
     finally:
         Path(db_path).unlink()
 

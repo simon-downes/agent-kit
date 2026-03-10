@@ -1,10 +1,10 @@
-# CLI Tools
+# Agent Kit
 
-A monorepo of small, focused Python CLI tools for common development tasks.
+A unified CLI toolkit for development workflows, providing key-value storage, OAuth authentication, and Notion integration.
 
 ## Purpose
 
-This repository provides a collection of lightweight, single-purpose command-line utilities. Each tool is independently installable and follows consistent patterns for ease of use and maintenance.
+Agent Kit provides a collection of focused command-line utilities under a single `ak` command. Each tool is designed for a specific purpose and they integrate seamlessly with each other.
 
 ## Requirements
 
@@ -13,47 +13,78 @@ This repository provides a collection of lightweight, single-purpose command-lin
 
 ## Available Tools
 
-### [kv](./kv/)
+### [kv](./src/agent_kit/kv/)
 
 A simple key-value store with expiry support, backed by SQLite. Store and retrieve values with optional TTL, perfect for temporary state or configuration management.
 
-### [oauth](./oauth/)
+### [oauth](./src/agent_kit/oauth/)
 
 OAuth authentication for SaaS providers. Handles OAuth 2.0 flows with PKCE, dynamic endpoint discovery, and stores credentials securely using the kv tool.
 
-### [notion](./notion/)
+### [notion](./src/agent_kit/notion/)
 
 CLI tool for searching and fetching Notion pages via MCP. Supports multiple output formats (terminal markdown, raw markdown, JSON) and integrates with the oauth tool for authentication.
+
+## Installation
+
+```bash
+# Install from local directory
+uv tool install .
+
+# Or install from GitHub
+uv tool install git+https://github.com/simon-downes/cli-tools.git
+```
+
+## Usage
+
+```bash
+# Key-value store
+ak kv set my-key "my value"
+ak kv get my-key
+ak kv list
+
+# OAuth authentication
+ak oauth login notion
+ak oauth status notion
+ak oauth logout notion
+
+# Notion integration
+ak notion search "project notes"
+ak notion fetch <page-id>
+```
 
 ## Repository Structure
 
 ```
-cli-tools/
-├── pyproject.toml          # Workspace config with shared dependencies
-├── .venv/                  # Shared virtual environment
-└── <tool-name>/            # Each tool in its own directory
-    ├── pyproject.toml      # Tool-specific dependencies and metadata
-    ├── README.md           # Tool documentation
-    ├── src/<tool-name>/    # Source code
-    │   ├── __init__.py
-    │   ├── cli.py          # CLI interface (using click)
-    │   └── ...
-    └── tests/              # Tests
+agent-kit/
+├── pyproject.toml          # Package configuration
+├── src/agent_kit/          # Source code
+│   ├── cli.py              # Main CLI entry point
+│   ├── kv/                 # Key-value store
+│   ├── oauth/              # OAuth authentication
+│   └── notion/             # Notion integration
+└── tests/                  # Tests
+    ├── kv/
+    ├── oauth/
+    └── notion/
 ```
+
+## Configuration
+
+All configuration and data is stored in `~/.agent-kit/`:
+- `db` - SQLite database for key-value store
+- `oauth.yaml` - OAuth provider configurations
+- `notion.yaml` - Notion configuration (if applicable)
 
 ## Tooling
 
-All tools in this repository use:
-
 - **uv** - Package management and virtual environments
 - **click** - CLI framework
-- **rich** - Terminal formatting (where appropriate)
+- **rich** - Terminal formatting
 - **ruff** - Linting
 - **black** - Code formatting
 - **mypy** - Type checking
 - **pytest** - Testing
-
-Shared dependencies are managed at the workspace level to ensure consistency.
 
 ## Development
 
@@ -66,39 +97,14 @@ cd cli-tools
 uv sync
 ```
 
-### Installing Tools for Development
-
-```bash
-# Install from local directory
-uv tool install ./<tool-name>
-
-# Or run without installing
-uvx --from ./<tool-name> <tool-name> --help
-```
-
-### Installing Tools
-
-```bash
-# Install a tool globally
-uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory <tool-name>
-
-# Or run without installing
-uvx --from git+https://github.com/simon-downes/cli-tools.git --subdirectory <tool-name> <tool-name> --help
-
-# Examples
-uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory kv
-uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory oauth
-uv tool install git+https://github.com/simon-downes/cli-tools.git --subdirectory notion
-```
-
 ### Running Tests
 
 ```bash
 # All tests
 uv run pytest
 
-# Specific tool
-cd <tool-name> && uv run pytest
+# Specific module
+uv run pytest tests/kv/
 ```
 
 ### Code Quality
@@ -113,15 +119,3 @@ uv run ruff check .
 # Type check
 uv run mypy .
 ```
-
-## Contributing
-
-When adding a new tool:
-
-1. Create a new directory with the tool name
-2. Add `pyproject.toml` with tool metadata and dependencies
-3. Use `src/<tool-name>/` layout for source code
-4. Implement CLI using click, use rich for output formatting
-5. Add comprehensive tests (unit + integration)
-6. Create detailed README.md in the tool directory
-7. Update this README to list the new tool

@@ -6,8 +6,8 @@ from typing import Any
 
 import yaml
 
-CONFIG_DIR = Path.home() / ".cli-tools" / "oauth"
-CONFIG_FILE = CONFIG_DIR / "providers.yaml"
+CONFIG_DIR = Path.home() / ".agent-kit"
+CONFIG_FILE = CONFIG_DIR / "oauth.yaml"
 
 
 def ensure_config() -> None:
@@ -16,7 +16,7 @@ def ensure_config() -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
         # Copy default config from package
-        default_config = files("oauth").joinpath("providers.yaml")
+        default_config = files("agent_kit.oauth").joinpath("providers.yaml")
         CONFIG_FILE.write_text(default_config.read_text())
 
 
@@ -46,7 +46,7 @@ def get_provider_endpoints(config: dict[str, Any]) -> dict[str, str]:
     If explicit endpoints are provided, use those.
     Otherwise, perform dynamic discovery using server_url.
     """
-    from oauth.flow import discover_oauth_metadata
+    from agent_kit.oauth.flow import discover_oauth_metadata
 
     # Check for explicit endpoints
     if "authorization_endpoint" in config and "token_endpoint" in config:

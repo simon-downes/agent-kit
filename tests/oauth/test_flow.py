@@ -1,6 +1,6 @@
 """Tests for OAuth flow functions."""
 
-from oauth.flow import base64url_encode, build_authorization_url, generate_pkce
+from agent_kit.oauth.flow import base64url_encode, build_authorization_url, generate_pkce
 
 
 def test_base64url_encode():

@@ -6,9 +6,9 @@ import sys
 import click
 from rich.console import Console
 
-from notion.auth import get_credentials
-from notion.mcp import connect_to_notion
-from notion.output import format_json, format_markdown_raw, format_markdown_terminal
+from agent_kit.notion.auth import get_credentials
+from agent_kit.notion.mcp import connect_to_notion
+from agent_kit.notion.output import format_json, format_markdown_raw, format_markdown_terminal
 
 console = Console()
 

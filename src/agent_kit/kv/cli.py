@@ -6,17 +6,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from kv.db import (
-    clean_expired,
-    delete_key,
-    get_db_path,
-    get_value,
-    init_db,
-    list_keys,
-    set_expiry,
-    set_value,
-    validate_key,
-)
+from agent_kit.kv import db
 
 console = Console()
 
@@ -32,34 +22,23 @@ def main() -> None:
 @click.argument("value", required=False)
 def set_cmd(key: str, value: str | None) -> None:
     """Set a key-value pair."""
-    if not validate_key(key):
-        console.print("[red]Error:[/red] Key must be lower-kebab-case and <= 100 characters")
-        sys.exit(1)
-
     if value is None:
         value = sys.stdin.read().rstrip("\n")
 
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    set_value(conn, key, value)
-    conn.close()
+    try:
+        db.set(key, value)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
 
 
 @main.command("get")
 @click.argument("key")
 def get_cmd(key: str) -> None:
     """Get value for a key."""
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    value, is_expired = get_value(conn, key)
-    conn.close()
-
+    value = db.get(key)
     if value is None:
         sys.exit(2)
-
-    if is_expired:
-        sys.exit(3)
-
     print(value)
 
 
@@ -69,10 +48,7 @@ def list_cmd(plain: bool) -> None:
     """List all keys."""
     from datetime import datetime
 
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    keys = list_keys(conn)
-    conn.close()
+    keys = db.list_all()
 
     if plain:
         for key, expires_at in keys:
@@ -103,11 +79,7 @@ def list_cmd(plain: bool) -> None:
 @click.argument("ttl", type=int)
 def expire_cmd(key: str, ttl: int) -> None:
     """Set expiry for a key (TTL in seconds)."""
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    exists = set_expiry(conn, key, ttl)
-    conn.close()
-
+    exists = db.expire(key, ttl)
     if not exists:
         console.print(f"[red]Error:[/red] Key '{key}' not found")
         sys.exit(2)
@@ -117,11 +89,7 @@ def expire_cmd(key: str, ttl: int) -> None:
 @click.argument("key")
 def rm_cmd(key: str) -> None:
     """Remove a key."""
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    exists = delete_key(conn, key)
-    conn.close()
-
+    exists = db.delete(key)
     if not exists:
         console.print(f"[red]Error:[/red] Key '{key}' not found")
         sys.exit(2)
@@ -130,11 +98,7 @@ def rm_cmd(key: str) -> None:
 @main.command("clean")
 def clean_cmd() -> None:
     """Remove all expired entries."""
-    db_path = get_db_path()
-    conn = init_db(db_path)
-    count = clean_expired(conn)
-    conn.close()
-
+    count = db.clean_expired_keys()
     console.print(f"[green]Removed {count} expired entries[/green]")
 
 
