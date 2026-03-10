@@ -3,14 +3,14 @@
 import json
 import os
 import secrets
-import subprocess
 import sys
 import webbrowser
 
 import click
 from rich.console import Console
 
-from oauth.flow import (
+from agent_kit.kv import db
+from agent_kit.oauth.flow import (
     build_authorization_url,
     exchange_code_for_tokens,
     generate_pkce,
@@ -18,43 +18,9 @@ from oauth.flow import (
     revoke_token,
     run_callback_server,
 )
-from oauth.provider import get_provider_config, get_provider_endpoints
+from agent_kit.oauth.provider import get_provider_config, get_provider_endpoints
 
 console = Console()
-
-
-def get_kv_value(key: str) -> str | None:
-    """Get value from kv store."""
-    try:
-        result = subprocess.run(["kv", "get", key], capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            return result.stdout.strip()
-        return None
-    except FileNotFoundError:
-        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
-        sys.exit(1)
-
-
-def set_kv_value(key: str, value: str) -> None:
-    """Set value in kv store."""
-    try:
-        subprocess.run(["kv", "set", key, value], check=True, capture_output=True)
-    except FileNotFoundError:
-        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
-        sys.exit(1)
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error:[/red] Failed to store tokens: {e}")
-        sys.exit(1)
-
-
-def delete_kv_value(key: str) -> bool:
-    """Delete value from kv store. Returns True if key existed."""
-    try:
-        result = subprocess.run(["kv", "rm", key], capture_output=True, check=False)
-        return result.returncode == 0
-    except FileNotFoundError:
-        console.print("[red]Error:[/red] kv tool not found. Please install it first.")
-        sys.exit(1)
 
 
 @click.group()
@@ -146,7 +112,7 @@ def login(provider: str, headless: bool) -> None:
         }
 
         kv_key = f"oauth-{provider}"
-        set_kv_value(kv_key, json.dumps(token_data))
+        db.set(kv_key, json.dumps(token_data))
 
         console.print(f"\n✅ Tokens saved to kv store (key: [cyan]{kv_key}[/cyan])")
         console.print("🎉 Authentication complete!")
@@ -162,7 +128,7 @@ def logout(provider: str) -> None:
     """Logout from a provider (revoke tokens and remove from kv)."""
     kv_key = f"oauth-{provider}"
 
-    token_json = get_kv_value(kv_key)
+    token_json = db.get(kv_key)
     if not token_json:
         console.print(f"[yellow]Not authenticated with {provider}[/yellow]")
         return
@@ -182,7 +148,7 @@ def logout(provider: str) -> None:
             else:
                 console.print("[yellow]⚠️  Token revocation failed (continuing anyway)[/yellow]")
 
-        delete_kv_value(kv_key)
+        db.delete(kv_key)
         console.print("✅ Removed credentials from kv store")
         console.print(f"🎉 Logged out from {provider}")
 
@@ -197,7 +163,7 @@ def status(provider: str) -> None:
     """Check authentication status for a provider."""
     kv_key = f"oauth-{provider}"
 
-    token_json = get_kv_value(kv_key)
+    token_json = db.get(kv_key)
     if not token_json:
         console.print(f"[yellow]Not authenticated with {provider}[/yellow]")
         sys.exit(1)
@@ -227,11 +193,11 @@ def status(provider: str) -> None:
 @click.argument("provider")
 def refresh(provider: str) -> None:
     """Refresh access token using refresh token."""
-    from oauth.flow import refresh_access_token
+    from agent_kit.oauth.flow import refresh_access_token
 
     kv_key = f"oauth-{provider}"
 
-    token_json = get_kv_value(kv_key)
+    token_json = db.get(kv_key)
     if not token_json:
         console.print(f"[red]Error:[/red] Not authenticated with {provider}")
         console.print("\nRun: [cyan]uvx oauth login {provider}[/cyan]")
@@ -266,7 +232,7 @@ def refresh(provider: str) -> None:
         if "refresh_token" in new_tokens:
             token_data["refresh_token"] = new_tokens["refresh_token"]
 
-        set_kv_value(kv_key, json.dumps(token_data))
+        db.set(kv_key, json.dumps(token_data))
 
         console.print(f"✅ Access token refreshed for {provider}")
 

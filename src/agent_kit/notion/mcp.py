@@ -5,7 +5,7 @@ from typing import Any
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from notion.auth import NOTION_MCP_URL
+from agent_kit.notion.auth import NOTION_MCP_URL
 
 
 async def connect_to_notion(access_token: str) -> tuple[ClientSession, Any, Any]:

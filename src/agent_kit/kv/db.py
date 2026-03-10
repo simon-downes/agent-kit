@@ -12,7 +12,7 @@ def get_db_path() -> Path:
     db_path = os.environ.get("KV_DB")
     if db_path:
         return Path(db_path)
-    return Path.home() / ".cli-tools" / "kv" / "db"
+    return Path.home() / ".agent-kit" / "db"
 
 
 def init_db(db_path: Path) -> sqlite3.Connection:
@@ -106,3 +106,72 @@ def clean_expired(conn: sqlite3.Connection) -> int:
     cursor = conn.execute("DELETE FROM kv WHERE expires_at IS NOT NULL AND expires_at < ?", (now,))
     conn.commit()
     return cursor.rowcount
+
+
+# Public API - simplified interface without requiring connection management
+
+
+def get(key: str) -> str | None:
+    """Get value for key. Returns None if not found or expired."""
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        value, is_expired = get_value(conn, key)
+        if is_expired:
+            delete_key(conn, key)
+            return None
+        return value
+    finally:
+        conn.close()
+
+
+def set(key: str, value: str) -> None:
+    """Set a key-value pair."""
+    if not validate_key(key):
+        raise ValueError(f"Invalid key: {key}")
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        set_value(conn, key, value)
+    finally:
+        conn.close()
+
+
+def delete(key: str) -> bool:
+    """Delete a key. Returns True if key existed."""
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        return delete_key(conn, key)
+    finally:
+        conn.close()
+
+
+def list_all() -> list[tuple[str, str | None]]:
+    """List all keys with their expiry times."""
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        return list_keys(conn)
+    finally:
+        conn.close()
+
+
+def clean_expired_keys() -> int:
+    """Remove expired entries. Returns count of deleted entries."""
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        return clean_expired(conn)
+    finally:
+        conn.close()
+
+
+def expire(key: str, ttl: int) -> bool:
+    """Set expiry for a key. Returns True if key exists."""
+    db_path = get_db_path()
+    conn = init_db(db_path)
+    try:
+        return set_expiry(conn, key, ttl)
+    finally:
+        conn.close()
