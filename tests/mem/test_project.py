@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_kit.mem.project import resolve_project
+from agent_kit.project import resolve_project
 
 
 def test_resolve_from_dev_directory(monkeypatch):

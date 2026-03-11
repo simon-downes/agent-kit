@@ -7,6 +7,7 @@ from rich.console import Console
 
 from agent_kit.mem import db
 from agent_kit.mem.models import validate_kebab_case, validate_kind, validate_metadata
+from agent_kit.project import resolve_project
 
 console = Console()
 
@@ -47,7 +48,6 @@ def add_cmd(
 
         # Resolve project if not provided
         if not project:
-            from agent_kit.mem.project import resolve_project
             project = resolve_project()
 
         # Validate inputs
@@ -98,7 +98,6 @@ def list_cmd(
     try:
         # Resolve project if not provided
         if not project:
-            from agent_kit.mem.project import resolve_project
             project = resolve_project()
 
         # Validate and enforce limit
@@ -142,7 +141,6 @@ def stats_cmd(project: str | None) -> None:
 
     # Resolve project if not provided
     if not project:
-        from agent_kit.mem.project import resolve_project
         project = resolve_project()
 
     stats = db.get_stats(project)
