@@ -1,121 +1,152 @@
 # Agent Kit
 
-A unified CLI toolkit for development workflows, providing key-value storage, OAuth authentication, and Notion integration.
-
-## Purpose
-
-Agent Kit provides a collection of focused command-line utilities under a single `ak` command. Each tool is designed for a specific purpose and they integrate seamlessly with each other.
-
-## Requirements
-
-- Python 3.13+
-- [uv](https://github.com/astral-sh/uv) package manager
-
-## Available Tools
-
-### [kv](./src/agent_kit/kv/)
-
-A simple key-value store with expiry support, backed by SQLite. Store and retrieve values with optional TTL, perfect for temporary state or configuration management.
-
-### [oauth](./src/agent_kit/oauth/)
-
-OAuth authentication for SaaS providers. Handles OAuth 2.0 flows with PKCE, dynamic endpoint discovery, and stores credentials securely using the kv tool.
-
-### [notion](./src/agent_kit/notion/)
-
-CLI tool for searching and fetching Notion pages via MCP. Supports multiple output formats (terminal markdown, raw markdown, JSON) and integrates with the oauth tool for authentication.
+Unified CLI toolkit for development workflows: key-value storage, OAuth authentication, Notion integration, and agent memory.
 
 ## Installation
 
 ```bash
-# Install from local directory
+# Install with uv
+uv tool install git+https://github.com/simon-downes/agent-kit.git
+
+# Or install from local directory
 uv tool install .
-
-# Or install from GitHub
-uv tool install git+https://github.com/simon-downes/cli-tools.git
-```
-
-## Usage
-
-```bash
-# Key-value store
-ak kv set my-key "my value"
-ak kv get my-key
-ak kv list
-
-# OAuth authentication
-ak oauth login notion
-ak oauth status notion
-ak oauth logout notion
-
-# Notion integration
-ak notion search "project notes"
-ak notion fetch <page-id>
-```
-
-## Repository Structure
-
-```
-agent-kit/
-├── pyproject.toml          # Package configuration
-├── src/agent_kit/          # Source code
-│   ├── cli.py              # Main CLI entry point
-│   ├── kv/                 # Key-value store
-│   ├── oauth/              # OAuth authentication
-│   └── notion/             # Notion integration
-└── tests/                  # Tests
-    ├── kv/
-    ├── oauth/
-    └── notion/
 ```
 
 ## Configuration
 
-All configuration and data is stored in `~/.agent-kit/`:
-- `db` - SQLite database for key-value store
-- `oauth.yaml` - OAuth provider configurations
-- `notion.yaml` - Notion configuration (if applicable)
+All data is stored in `~/.agent-kit/`:
+- `kv/db` - Key-value store database
+- `mem/db` - Agent memory database
+- OAuth tokens stored in kv
 
-## Tooling
+## Tools
 
-- **uv** - Package management and virtual environments
-- **click** - CLI framework
-- **rich** - Terminal formatting
-- **ruff** - Linting
-- **black** - Code formatting
-- **mypy** - Type checking
-- **pytest** - Testing
+### kv - Key-Value Store
 
-## Development
-
-### Setup
+Simple key-value storage with optional expiry, backed by SQLite.
 
 ```bash
-# Clone and sync dependencies
-git clone https://github.com/simon-downes/cli-tools.git
-cd cli-tools
-uv sync
+# Set a value
+ak kv set my-key "my value"
+
+# Get a value
+ak kv get my-key
+
+# List all keys
+ak kv list
+
+# Set with expiry (TTL in seconds)
+ak kv set temp-key "expires soon"
+ak kv expire temp-key 3600
+
+# Remove a key
+ak kv rm my-key
+
+# Clean expired entries
+ak kv clean
 ```
 
-### Running Tests
+**Use cases:**
+- Store API tokens and credentials
+- Temporary configuration
+- Cache data with TTL
+
+### mem - Agent Memory
+
+Persistent memory storage for AI agents across sessions and projects.
 
 ```bash
-# All tests
-uv run pytest
+# Add a memory
+ak mem add my-project --kind decision "Switched to REST API for simplicity"
 
-# Specific module
-uv run pytest tests/kv/
+# Add with optional fields
+ak mem add my-project \
+  --kind change \
+  --topic api-design \
+  --ref abc123 \
+  --metadata '{"author": "agent"}' \
+  "Implemented rate limiting"
+
+# Add from stdin
+echo "Long summary..." | ak mem add my-project --kind note -
+
+# List recent memories
+ak mem list my-project
+
+# Filter by kind or topic
+ak mem list my-project --kind decision
+ak mem list my-project --topic api-design
+
+# Limit results (default: 25, max: 100)
+ak mem list my-project --limit 50
+
+# JSON output
+ak mem list my-project --json
+
+# View statistics
+ak mem stats my-project
 ```
 
-### Code Quality
+**Memory kinds:**
+- `decision` - Architectural/technical decisions
+- `change` - Significant code changes
+- `issue` - Problems and resolutions
+- `context` - Project conventions and constraints
+- `task` - Work completed or in progress
+- `note` - General observations
+- `pattern` - Recurring patterns in codebase
+- `dependency` - External systems and integrations
+- `experiment` - Things tried that didn't work
+
+**Use cases:**
+- Capture agent decisions and context
+- Track project evolution over time
+- Provide historical context to agents
+- Document architectural patterns
+
+### oauth - OAuth Authentication
+
+OAuth 2.0 authentication with PKCE for SaaS providers.
 
 ```bash
-# Format code
-uv run black .
+# Login to a provider
+ak oauth login notion
 
-# Lint
-uv run ruff check .
+# Check authentication status
+ak oauth status notion
 
-# Type check
-uv run mypy .
+# Logout
+ak oauth logout notion
+
+# List available providers
+ak oauth providers
 ```
+
+**Supported providers:**
+- Notion
+- GitHub
+- Google
+
+Tokens are stored securely in the kv store.
+
+### notion - Notion Integration
+
+Search and fetch Notion pages via MCP.
+
+```bash
+# Search for pages
+ak notion search "project notes"
+
+# Fetch a specific page
+ak notion fetch <page-id>
+
+# Output formats
+ak notion fetch <page-id> --format markdown
+ak notion fetch <page-id> --format json
+```
+
+Requires authentication via `ak oauth login notion`.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
