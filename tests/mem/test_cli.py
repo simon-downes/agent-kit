@@ -31,7 +31,7 @@ def test_add_memory():
             try:
                 result = runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "Test decision"],
+                    ["add", "--project", "test-project", "--kind", "decision", "Test decision"],
                 )
                 assert result.exit_code == 0
                 assert "Added memory 1" in result.output
@@ -56,6 +56,7 @@ def test_add_memory_with_all_options():
                     main,
                     [
                         "add",
+                        "--project",
                         "test-project",
                         "--kind",
                         "change",
@@ -89,7 +90,7 @@ def test_add_memory_from_stdin():
             try:
                 result = runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "note", "-"],
+                    ["add", "--project", "test-project", "--kind", "note", "-"],
                     input="Multi-line\nsummary from\nstdin",
                 )
                 assert result.exit_code == 0
@@ -103,7 +104,7 @@ def test_add_memory_invalid_project():
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["add", "INVALID_PROJECT", "--kind", "decision", "Test"],
+        ["add", "--project", "INVALID_PROJECT", "--kind", "decision", "Test"],
     )
     assert result.exit_code == 1
     assert "lower-kebab-case" in result.output
@@ -114,7 +115,7 @@ def test_add_memory_invalid_kind():
     runner = CliRunner()
     result = runner.invoke(
         main,
-        ["add", "test-project", "--kind", "invalid", "Test"],
+        ["add", "--project", "test-project", "--kind", "invalid", "Test"],
     )
     assert result.exit_code == 1
     assert "Invalid kind" in result.output
@@ -136,15 +137,15 @@ def test_list_memories():
                 # Add some memories
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "First decision"],
+                    ["add", "--project", "test-project", "--kind", "decision", "First decision"],
                 )
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "change", "First change"],
+                    ["add", "--project", "test-project", "--kind", "change", "First change"],
                 )
 
                 # List all
-                result = runner.invoke(main, ["list", "test-project"])
+                result = runner.invoke(main, ["list", "--project", "test-project"])
                 assert result.exit_code == 0
                 assert "decision" in result.output
                 assert "change" in result.output
@@ -169,10 +170,10 @@ def test_list_memories_json():
             try:
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "Test decision"],
+                    ["add", "--project", "test-project", "--kind", "decision", "Test decision"],
                 )
 
-                result = runner.invoke(main, ["list", "test-project", "--json"])
+                result = runner.invoke(main, ["list", "--project", "test-project", "--json"])
                 assert result.exit_code == 0
                 assert '"project": "test-project"' in result.output
                 assert '"kind": "decision"' in result.output
@@ -196,15 +197,15 @@ def test_list_memories_with_filters():
             try:
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "Decision 1"],
+                    ["add", "--project", "test-project", "--kind", "decision", "Decision 1"],
                 )
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "change", "Change 1"],
+                    ["add", "--project", "test-project", "--kind", "change", "Change 1"],
                 )
 
                 result = runner.invoke(
-                    main, ["list", "test-project", "--kind", "decision"]
+                    main, ["list", "--project", "test-project", "--kind", "decision"]
                 )
                 assert result.exit_code == 0
                 assert "Decision 1" in result.output
@@ -228,18 +229,18 @@ def test_stats():
             try:
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "Decision 1"],
+                    ["add", "--project", "test-project", "--kind", "decision", "Decision 1"],
                 )
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "decision", "Decision 2"],
+                    ["add", "--project", "test-project", "--kind", "decision", "Decision 2"],
                 )
                 runner.invoke(
                     main,
-                    ["add", "test-project", "--kind", "change", "Change 1"],
+                    ["add", "--project", "test-project", "--kind", "change", "Change 1"],
                 )
 
-                result = runner.invoke(main, ["stats", "test-project"])
+                result = runner.invoke(main, ["stats", "--project", "test-project"])
                 assert result.exit_code == 0
                 assert "Total memories: 3" in result.output
                 assert "decision" in result.output
@@ -261,7 +262,7 @@ def test_stats_empty_project():
             db_module.get_db_path = lambda: db_path
 
             try:
-                result = runner.invoke(main, ["stats", "nonexistent-project"])
+                result = runner.invoke(main, ["stats", "--project", "nonexistent-project"])
                 assert result.exit_code == 0
                 assert "No memories found" in result.output
             finally:

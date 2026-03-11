@@ -18,14 +18,14 @@ def main() -> None:
 
 
 @main.command("add")
-@click.argument("project")
+@click.option("--project", help="Project name (auto-detected if not provided)")
 @click.option("--kind", required=True, help="Memory kind")
 @click.option("--topic", help="Optional topic in lower-kebab-case")
 @click.option("--ref", help="Optional reference (commit, PR, issue)")
 @click.option("--metadata", default="", help="Optional JSON metadata")
 @click.argument("summary")
 def add_cmd(
-    project: str,
+    project: str | None,
     kind: str,
     topic: str | None,
     ref: str | None,
@@ -44,6 +44,11 @@ def add_cmd(
         if not summary:
             console.print("[red]Error:[/red] Summary cannot be empty")
             sys.exit(1)
+
+        # Resolve project if not provided
+        if not project:
+            from agent_kit.mem.project import resolve_project
+            project = resolve_project()
 
         # Validate inputs
         validate_kebab_case(project)
@@ -72,7 +77,7 @@ def add_cmd(
 
 
 @main.command("list")
-@click.argument("project")
+@click.option("--project", help="Project name (auto-detected if not provided)")
 @click.option(
     "--limit",
     default=25,
@@ -83,7 +88,7 @@ def add_cmd(
 @click.option("--topic", help="Filter by topic")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def list_cmd(
-    project: str,
+    project: str | None,
     limit: int,
     kind: str | None,
     topic: str | None,
@@ -91,6 +96,11 @@ def list_cmd(
 ) -> None:
     """List memories for a project."""
     try:
+        # Resolve project if not provided
+        if not project:
+            from agent_kit.mem.project import resolve_project
+            project = resolve_project()
+
         # Validate and enforce limit
         if limit > 100:
             limit = 100
@@ -125,10 +135,15 @@ def list_cmd(
 
 
 @main.command("stats")
-@click.argument("project")
-def stats_cmd(project: str) -> None:
+@click.option("--project", help="Project name (auto-detected if not provided)")
+def stats_cmd(project: str | None) -> None:
     """Show statistics for a project."""
     from rich.table import Table
+
+    # Resolve project if not provided
+    if not project:
+        from agent_kit.mem.project import resolve_project
+        project = resolve_project()
 
     stats = db.get_stats(project)
 

@@ -56,11 +56,14 @@ ak kv clean
 Persistent memory storage for AI agents across sessions and projects.
 
 ```bash
-# Add a memory
-ak mem add my-project --kind decision "Switched to REST API for simplicity"
+# Add a memory (project auto-detected from current directory)
+ak mem add --kind decision "Switched to REST API for simplicity"
+
+# Add with explicit project
+ak mem add --project my-project --kind change "Implemented rate limiting"
 
 # Add with optional fields
-ak mem add my-project \
+ak mem add \
   --kind change \
   --topic api-design \
   --ref abc123 \
@@ -68,24 +71,32 @@ ak mem add my-project \
   "Implemented rate limiting"
 
 # Add from stdin
-echo "Long summary..." | ak mem add my-project --kind note -
+echo "Long summary..." | ak mem add --kind note -
 
-# List recent memories
-ak mem list my-project
+# List recent memories for current project
+ak mem list
+
+# List for specific project
+ak mem list --project my-project
 
 # Filter by kind or topic
-ak mem list my-project --kind decision
-ak mem list my-project --topic api-design
+ak mem list --kind decision
+ak mem list --topic api-design
 
 # Limit results (default: 25, max: 100)
-ak mem list my-project --limit 50
+ak mem list --limit 50
 
 # JSON output
-ak mem list my-project --json
+ak mem list --json
 
 # View statistics
-ak mem stats my-project
+ak mem stats
 ```
+
+**Project resolution** (when `--project` not specified):
+1. First subdirectory under `~/dev` if cwd is under `~/dev`
+2. Git repository root name (directory containing `.git`)
+3. Current directory path with `/` replaced by `-`
 
 **Memory kinds:**
 - `decision` - Architectural/technical decisions
