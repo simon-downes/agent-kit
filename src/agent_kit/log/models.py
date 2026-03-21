@@ -1,27 +1,24 @@
-"""Data models and validation for agent memory."""
+"""Data models and validation for activity log."""
 
 import json
 import re
 from dataclasses import dataclass
 
-MEMORY_KINDS = [
+ENTRY_KINDS = [
+    "task",
     "decision",
     "change",
     "issue",
-    "context",
-    "task",
     "note",
-    "pattern",
-    "dependency",
-    "experiment",
+    "request",
 ]
 
 KEBAB_CASE_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 @dataclass
-class Memory:
-    """Memory record."""
+class Entry:
+    """Activity log entry."""
 
     id: int
     ts: str
@@ -49,10 +46,10 @@ def validate_kind(kind: str) -> None:
     """Validate that kind is in the allowed list.
 
     Raises:
-        ValueError: If kind is not in MEMORY_KINDS.
+        ValueError: If kind is not in ENTRY_KINDS.
     """
-    if kind not in MEMORY_KINDS:
-        kinds_str = ", ".join(MEMORY_KINDS)
+    if kind not in ENTRY_KINDS:
+        kinds_str = ", ".join(ENTRY_KINDS)
         raise ValueError(f"Invalid kind '{kind}'. Must be one of: {kinds_str}")
 
 

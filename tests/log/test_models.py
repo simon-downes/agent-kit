@@ -1,27 +1,24 @@
-"""Tests for mem models and validation."""
+"""Tests for log models and validation."""
 
 import pytest
 
-from agent_kit.mem.models import (
-    MEMORY_KINDS,
+from agent_kit.log.models import (
+    ENTRY_KINDS,
     validate_kebab_case,
     validate_kind,
     validate_metadata,
 )
 
 
-def test_memory_kinds_defined():
-    """Test that memory kinds are defined."""
-    assert len(MEMORY_KINDS) == 9
-    assert "decision" in MEMORY_KINDS
-    assert "change" in MEMORY_KINDS
-    assert "issue" in MEMORY_KINDS
-    assert "context" in MEMORY_KINDS
-    assert "task" in MEMORY_KINDS
-    assert "note" in MEMORY_KINDS
-    assert "pattern" in MEMORY_KINDS
-    assert "dependency" in MEMORY_KINDS
-    assert "experiment" in MEMORY_KINDS
+def test_entry_kinds_defined():
+    """Test that entry kinds are defined."""
+    assert len(ENTRY_KINDS) == 6
+    assert "task" in ENTRY_KINDS
+    assert "decision" in ENTRY_KINDS
+    assert "change" in ENTRY_KINDS
+    assert "issue" in ENTRY_KINDS
+    assert "note" in ENTRY_KINDS
+    assert "request" in ENTRY_KINDS
 
 
 def test_validate_kebab_case_valid():
@@ -55,18 +52,21 @@ def test_validate_kebab_case_invalid():
 
 
 def test_validate_kind_valid():
-    """Test valid memory kinds."""
-    for kind in MEMORY_KINDS:
+    """Test valid entry kinds."""
+    for kind in ENTRY_KINDS:
         validate_kind(kind)
 
 
 def test_validate_kind_invalid():
-    """Test invalid memory kinds."""
+    """Test invalid entry kinds."""
     with pytest.raises(ValueError, match="Invalid kind"):
         validate_kind("invalid-kind")
 
     with pytest.raises(ValueError, match="Must be one of"):
-        validate_kind("random")
+        validate_kind("context")
+
+    with pytest.raises(ValueError, match="Must be one of"):
+        validate_kind("pattern")
 
 
 def test_validate_metadata_empty():
