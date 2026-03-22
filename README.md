@@ -1,6 +1,6 @@
 # Agent Kit
 
-Unified CLI toolkit for development workflows: key-value storage, OAuth authentication, Notion integration, and agent memory.
+Unified CLI toolkit for development workflows: key-value storage, activity logging, OAuth authentication, Notion integration, and environment checks.
 
 ## Installation
 
@@ -16,10 +16,28 @@ uv tool install .
 
 All data is stored in `~/.agent-kit/`:
 - `kv/db` - Key-value store database
-- `mem/db` - Agent memory database
+- `log/db` - Activity log database
+- `tools.yaml` - Tool check configuration
 - OAuth tokens stored in kv
 
 ## Tools
+
+### check - Environment Checks
+
+Verify tool installation and authentication status.
+
+```bash
+# Check all configured tools
+ak check
+
+# Check specific tools
+ak check gh aws
+
+# Verbose output with auth details
+ak check -v
+```
+
+Configuration: `~/.agent-kit/tools.yaml`
 
 ### kv - Key-Value Store
 
@@ -51,46 +69,36 @@ ak kv clean
 - Temporary configuration
 - Cache data with TTL
 
-### mem - Agent Memory
+### log - Activity Log
 
-Persistent memory storage for AI agents across sessions and projects.
+Capture and retrieve project activity across sessions. Auto-detects project from current directory.
 
 ```bash
-# Add a memory (project auto-detected from current directory)
-ak mem add --kind decision "Switched to REST API for simplicity"
+# Add entry (project auto-detected)
+ak log add --kind decision "chose uv over pip for dependency management"
+ak log add --kind change "migrated auth module to OAuth2" --topic auth
 
 # Add with explicit project
-ak mem add --project my-project --kind change "Implemented rate limiting"
-
-# Add with optional fields
-ak mem add \
-  --kind change \
-  --topic api-design \
-  --ref abc123 \
-  --metadata '{"author": "agent"}' \
-  "Implemented rate limiting"
+ak log add --kind change "fixed auth bug" --project my-app
 
 # Add from stdin
-echo "Long summary..." | ak mem add --kind note -
+echo "Long description..." | ak log add --kind note -
 
-# List recent memories for current project
-ak mem list
+# List entries
+ak log list
+ak log list --kind decision --limit 5
+ak log list --since 7d
+ak log list --since 2026-03-01 --until 2026-03-15
 
-# List for specific project
-ak mem list --project my-project
-
-# Filter by kind or topic
-ak mem list --kind decision
-ak mem list --topic api-design
-
-# Limit results (default: 25, max: 100)
-ak mem list --limit 50
+# Cross-project queries (omit --project)
+ak log list --kind issue
 
 # JSON output
-ak mem list --json
+ak log list --json
 
 # View statistics
-ak mem stats
+ak log stats
+ak log stats --project my-app
 ```
 
 **Project resolution** (when `--project` not specified):
@@ -98,22 +106,19 @@ ak mem stats
 2. Git repository root name (directory containing `.git`)
 3. Current directory path with `/` replaced by `-`
 
-**Memory kinds:**
-- `decision` - Architectural/technical decisions
-- `change` - Significant code changes
-- `issue` - Problems and resolutions
-- `context` - Project conventions and constraints
-- `task` - Work completed or in progress
+**Entry kinds:**
+- `task` - Completed unit of work
+- `decision` - Technical choices and rationale
+- `change` - Modifications to files or system state
+- `issue` - Problems and blockers
 - `note` - General observations
-- `pattern` - Recurring patterns in codebase
-- `dependency` - External systems and integrations
-- `experiment` - Things tried that didn't work
+- `request` - Questions answered or information provided
 
 **Use cases:**
-- Capture agent decisions and context
-- Track project evolution over time
-- Provide historical context to agents
-- Document architectural patterns
+- Track decisions and their rationale
+- Capture activity for trend analysis
+- Record issues and resolutions
+- Provide historical context across sessions
 
 ### oauth - OAuth Authentication
 
@@ -157,6 +162,20 @@ ak notion fetch <page-id> --format json
 ```
 
 Requires authentication via `ak oauth login notion`.
+
+### project - Project Detection
+
+Show the resolved project name for a directory.
+
+```bash
+# Current directory
+ak project
+
+# Specific path
+ak project /path/to/project
+```
+
+Used internally by `ak log` for auto-detection.
 
 ## Contributing
 

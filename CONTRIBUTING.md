@@ -23,13 +23,18 @@ agent-kit/
 ├── pyproject.toml              # Package configuration
 ├── src/agent_kit/
 │   ├── cli.py                  # Main CLI entry point
+│   ├── project.py              # Project name resolution
+│   ├── check/                  # Environment check tool
 │   ├── kv/                     # Key-value store tool
-│   ├── mem/                    # Agent memory tool
+│   ├── log/                    # Activity log tool
 │   ├── oauth/                  # OAuth authentication
-│   └── notion/                 # Notion integration
+│   ├── notion/                 # Notion integration
+│   └── commands/               # Standalone commands (project)
 └── tests/
+    ├── check/
     ├── kv/
-    ├── mem/
+    ├── log/
+    ├── commands/
     └── ...
 ```
 
@@ -47,7 +52,7 @@ Each tool is a module with:
 4. **Add tests** in `tests/newtool/`
 5. **Update README.md** with usage examples
 
-Examine existing tools (`kv`, `mem`) for reference implementations.
+Examine existing tools (`kv`, `log`) for reference implementations.
 
 ## Common Patterns
 
@@ -96,7 +101,7 @@ Examine existing tools (`kv`, `mem`) for reference implementations.
 uv run python -m pytest
 
 # Specific module
-uv run python -m pytest tests/newtool/
+uv run python -m pytest tests/log/
 
 # Verbose
 uv run python -m pytest -v
@@ -123,7 +128,7 @@ Configuration: `[tool.black]` in `pyproject.toml`
 
 ### Type Checking
 ```bash
-uv tool run mypy src/agent_kit/newtool/
+uv tool run mypy src/agent_kit/
 ```
 
 Configuration: `[tool.mypy]` in `pyproject.toml`
