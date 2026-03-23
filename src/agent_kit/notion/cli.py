@@ -59,7 +59,7 @@ async def _search(query: str, output_json: bool, raw: bool) -> None:
         if "401" in error_msg or "Unauthorized" in error_msg:
             console.print("[red]Error:[/red] Authentication failed")
             console.print("\nYour credentials may have expired. Try re-authenticating:")
-            console.print("[cyan]uvx oauth login notion[/cyan]")
+            console.print("[cyan]ak oauth login notion[/cyan]")
             sys.exit(2)
 
         console.print(f"[red]Error:[/red] {e}")
@@ -117,7 +117,7 @@ async def _fetch(page_id_or_url: str, output_json: bool, raw: bool) -> None:
         if "401" in error_msg or "Unauthorized" in error_msg:
             console.print("[red]Error:[/red] Authentication failed")
             console.print("\nYour credentials may have expired. Try re-authenticating:")
-            console.print("[cyan]uvx oauth login notion[/cyan]")
+            console.print("[cyan]ak oauth login notion[/cyan]")
             sys.exit(2)
 
         console.print(f"[red]Error:[/red] {e}")

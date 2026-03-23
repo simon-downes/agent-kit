@@ -222,7 +222,7 @@ def refresh(provider: str) -> None:
     token_json = db.get(kv_key)
     if not token_json:
         console.print(f"[red]Error:[/red] Not authenticated with {provider}")
-        console.print("\nRun: [cyan]uvx oauth login {provider}[/cyan]")
+        console.print(f"\nRun: [cyan]ak oauth login {provider}[/cyan]")
         sys.exit(2)
 
     try:
@@ -231,7 +231,7 @@ def refresh(provider: str) -> None:
         if not token_data.get("refresh_token"):
             console.print("[red]Error:[/red] No refresh token available")
             console.print("\nYou need to re-authenticate:")
-            console.print(f"[cyan]uvx oauth login {provider}[/cyan]")
+            console.print(f"[cyan]ak oauth login {provider}[/cyan]")
             sys.exit(2)
 
         if not token_data.get("token_endpoint"):
@@ -264,7 +264,7 @@ def refresh(provider: str) -> None:
     except Exception as e:
         console.print(f"[red]Error:[/red] Failed to refresh token: {e}")
         console.print("\nYou may need to re-authenticate:")
-        console.print(f"[cyan]uvx oauth login {provider}[/cyan]")
+        console.print(f"[cyan]ak oauth login {provider}[/cyan]")
         sys.exit(2)
 
 
