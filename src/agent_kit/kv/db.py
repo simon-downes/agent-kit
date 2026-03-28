@@ -42,7 +42,7 @@ def validate_key(key: str) -> bool:
     """Validate key is lower-kebab-case and <= 100 chars."""
     if len(key) > 100:
         return False
-    return bool(re.match(r"^[a-z0-9]+(-[a-z0-9]+)*$", key))
+    return bool(re.match(r"^[a-z0-9]+([-.][a-z0-9]+)*$", key))
 
 
 def set_value(conn: sqlite3.Connection, key: str, value: str) -> None:
