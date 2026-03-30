@@ -10,8 +10,8 @@ CONFIG_PATH = Path("~/.agent-kit/config.yaml").expanduser()
 
 DEFAULT_CONFIG = {
     "notion": {
-        "operations": {"read": True, "write": False},
-        "scope": {"pages": [], "databases": []},
+        "read": {"enabled": True, "scope": {"pages": [], "databases": []}},
+        "write": {"enabled": False, "scope": {"pages": [], "databases": []}},
     },
 }
 
@@ -23,15 +23,15 @@ class ScopeConfig:
 
 
 @dataclass
-class OperationsConfig:
-    read: bool = True
-    write: bool = False
+class AccessConfig:
+    enabled: bool = True
+    scope: ScopeConfig = field(default_factory=ScopeConfig)
 
 
 @dataclass
 class NotionConfig:
-    operations: OperationsConfig = field(default_factory=OperationsConfig)
-    scope: ScopeConfig = field(default_factory=ScopeConfig)
+    read: AccessConfig = field(default_factory=AccessConfig)
+    write: AccessConfig = field(default_factory=lambda: AccessConfig(enabled=False))
 
 
 @dataclass
@@ -39,19 +39,28 @@ class Config:
     notion: NotionConfig = field(default_factory=NotionConfig)
 
 
+def _build_access(data: dict, defaults: dict) -> AccessConfig:
+    """Build an AccessConfig from raw dict merged with defaults."""
+    merged = {**defaults, **data}
+    scope_data = {**defaults.get("scope", {}), **data.get("scope", {})}
+    return AccessConfig(
+        enabled=merged.get("enabled", defaults["enabled"]),
+        scope=ScopeConfig(**scope_data),
+    )
+
+
 def _build_config(data: dict) -> Config:
     """Build a Config from a raw dict, merging with defaults."""
-    merged = DEFAULT_CONFIG.copy()
-    if "notion" in data and isinstance(data["notion"], dict):
-        for key in ("operations", "scope"):
-            if key in data["notion"] and isinstance(data["notion"][key], dict):
-                merged["notion"][key] = {**merged["notion"][key], **data["notion"][key]}
+    nd = data.get("notion", {}) if isinstance(data.get("notion"), dict) else {}
+    defaults = DEFAULT_CONFIG["notion"]
 
-    n = merged["notion"]
+    read_data = nd.get("read", {}) if isinstance(nd.get("read"), dict) else {}
+    write_data = nd.get("write", {}) if isinstance(nd.get("write"), dict) else {}
+
     return Config(
         notion=NotionConfig(
-            operations=OperationsConfig(**n["operations"]),
-            scope=ScopeConfig(**n["scope"]),
+            read=_build_access(read_data, defaults["read"]),
+            write=_build_access(write_data, defaults["write"]),
         )
     )
 

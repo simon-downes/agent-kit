@@ -7,23 +7,27 @@ from typing import Any
 
 from mcp import ClientSession
 
-from agent_kit.config import Config
+from agent_kit.config import Config, ScopeConfig
 
 NOTION_MCP_URL = "https://mcp.notion.com/mcp"
 
 _ANCESTOR_RE = re.compile(r'<(?:parent-page|ancestor-\d+-page)\s+url="[^"]*?([a-f0-9]{32})"')
 
 
+class ScopeError(Exception):
+    """Raised when a resource is outside configured scope."""
+
+
 def require_read(config: Config) -> None:
     """Exit if read operations are disabled."""
-    if not config.notion.operations.read:
+    if not config.notion.read.enabled:
         print("Error: Notion read operations are disabled in config", file=sys.stderr)
         sys.exit(1)
 
 
 def require_write(config: Config) -> None:
     """Exit if write operations are disabled."""
-    if not config.notion.operations.write:
+    if not config.notion.write.enabled:
         print("Error: Notion write operations are disabled in config", file=sys.stderr)
         sys.exit(1)
 
@@ -33,43 +37,28 @@ def _extract_ancestor_ids(text: str) -> list[str]:
     return _ANCESTOR_RE.findall(text)
 
 
-class ScopeError(Exception):
-    """Raised when a resource is outside configured scope."""
-
-
-def check_scope(config: Config, page_id: str, text: str) -> None:
-    """Check if page or any ancestor is in the configured scope."""
-    allowed = config.notion.scope.pages
-    if not allowed:
-        return
-
-    if page_id in allowed:
-        return
-
+def _in_scope(scope: ScopeConfig, resource_id: str, text: str) -> bool:
+    """Check if resource or any ancestor is in scope."""
+    if not scope.pages and not scope.databases:
+        return True
+    if resource_id in scope.pages or resource_id in scope.databases:
+        return True
     for ancestor_id in _extract_ancestor_ids(text):
-        if ancestor_id in allowed:
-            return
+        if ancestor_id in scope.pages or ancestor_id in scope.databases:
+            return True
+    return False
 
-    raise ScopeError(f"page {page_id} is not in configured scope")
+
+def check_read_scope(config: Config, resource_id: str, text: str) -> None:
+    """Raise ScopeError if resource is not in read scope."""
+    if not _in_scope(config.notion.read.scope, resource_id, text):
+        raise ScopeError(f"{resource_id} is not in configured read scope")
 
 
-def check_database_scope(config: Config, db_id: str, text: str) -> None:
-    """Check if database or any ancestor is in the configured scope."""
-    db_allowed = config.notion.scope.databases
-    page_allowed = config.notion.scope.pages
-
-    if not db_allowed and not page_allowed:
-        return
-
-    if db_allowed and db_id in db_allowed:
-        return
-
-    if page_allowed:
-        for ancestor_id in _extract_ancestor_ids(text):
-            if ancestor_id in page_allowed:
-                return
-
-    raise ScopeError(f"database {db_id} is not in configured scope")
+def check_write_scope(config: Config, resource_id: str, text: str) -> None:
+    """Raise ScopeError if resource is not in write scope."""
+    if not _in_scope(config.notion.write.scope, resource_id, text):
+        raise ScopeError(f"{resource_id} is not in configured write scope")
 
 
 def extract_id(id_or_url: str) -> str:
@@ -113,9 +102,6 @@ async def _fetch_raw(session: ClientSession, resource_id: str) -> tuple[str, Any
     content = _parse_content(result)
     text = _extract_text(content)
     parsed = _try_parse_json(text)
-
-    # The MCP response is JSON with a 'text' field containing the page XML.
-    # Return the inner text for scope checking (it has ancestor-path).
     inner_text = parsed.get("text", text) if isinstance(parsed, dict) else text
     return inner_text, parsed
 
@@ -125,12 +111,10 @@ async def fetch_page(
 ) -> tuple[str, dict[str, Any]]:
     """Fetch a Notion page. Returns (raw_text, parsed_dict) for scope checking."""
     text, parsed = await _fetch_raw(session, page_id)
-
     if isinstance(parsed, dict):
         if not properties:
             parsed.pop("properties", None)
         return text, parsed
-
     return text, {"content": parsed}
 
 
@@ -181,7 +165,6 @@ async def fetch_comments(
     content = _parse_content(result)
     text = _extract_text(content)
     parsed = _try_parse_json(text)
-
     results = parsed if isinstance(parsed, list) else [parsed]
     if limit:
         results = results[:limit]
@@ -198,18 +181,13 @@ async def query_database(
     sort_reverse: bool = False,
     columns: list[str] | None = None,
     limit: int | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], str]:
     """Query database rows via a view, with optional post-processing.
 
-    1. Fetch the database to discover views
-    2. Pick a view (by name, or first available)
-    3. Query the view for rows
-    4. Post-process: filter, sort, column select, limit
+    Returns (rows, raw_text) — raw_text is for scope checking.
     """
-    # Step 1: fetch database to get views
     text, _ = await _fetch_raw(session, db_id)
 
-    # Step 2: find view URL
     view_url = _find_view_url(text, view_name)
     if not view_url:
         available = _list_view_names(text)
@@ -218,13 +196,11 @@ async def query_database(
             msg += f". Available views: {', '.join(available)}"
         raise ValueError(msg)
 
-    # Step 3: query the view
     result = await session.call_tool("notion-query-database-view", {"view_url": view_url})
     content = _parse_content(result)
     row_text = _extract_text(content)
     parsed = _try_parse_json(row_text)
 
-    # Extract results array
     rows: list[dict[str, Any]] = []
     if isinstance(parsed, dict) and "results" in parsed:
         rows = parsed["results"]
@@ -233,29 +209,20 @@ async def query_database(
     else:
         rows = [parsed] if parsed else []
 
-    # Step 4: post-process
     if filters:
         rows = _apply_filters(rows, filters)
-
     if sort_key:
-        rows = sorted(
-            rows,
-            key=lambda r: str(r.get(sort_key, "")),
-            reverse=sort_reverse,
-        )
-
+        rows = sorted(rows, key=lambda r: str(r.get(sort_key, "")), reverse=sort_reverse)
     if columns:
         rows = [{k: r.get(k) for k in columns if k in r} for r in rows]
-
     if limit:
         rows = rows[:limit]
 
-    return rows, text  # return text for scope checking
+    return rows, text
 
 
 def _find_view_url(text: str, view_name: str | None) -> str | None:
     """Find a view URL from database fetch response text."""
-    # Views: <view url="{{view://...}}">\n{JSON}\n</view>
     view_pattern = re.compile(
         r'<view\s+url="[{]*(view://[^}"]+)[}]*">\s*(\{.*?\})\s*</view>',
         re.DOTALL,
@@ -267,12 +234,10 @@ def _find_view_url(text: str, view_name: str | None) -> str | None:
             name = info.get("name", "")
         except json.JSONDecodeError:
             name = ""
-
         if view_name is None:
             return url
         if name.lower() == view_name.lower():
             return url
-
     return None
 
 

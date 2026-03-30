@@ -14,8 +14,8 @@ from agent_kit.notion.client import (
     NOTION_MCP_URL,
     ScopeError,
     _list_view_names,
-    check_database_scope,
-    check_scope,
+    check_read_scope,
+    check_write_scope,
     create_comment,
     create_page,
     extract_id,
@@ -137,7 +137,7 @@ def page(id_or_url: str, markdown: bool, properties: bool) -> None:
     async def _fetch() -> dict:
         async with _session(token) as session:
             text, result = await fetch_page(session, page_id, properties=properties)
-            check_scope(config, page_id, text)
+            check_read_scope(config, page_id, text)
             return result
 
     result = _run(_fetch())
@@ -164,7 +164,7 @@ def db(id_or_url: str, views: bool) -> None:
     async def _fetch() -> dict | list:
         async with _session(token) as session:
             text, result = await fetch_database(session, db_id)
-            check_database_scope(config, db_id, text)
+            check_read_scope(config, db_id, text)
             if views:
                 return _list_view_names(text)
             return result
@@ -224,7 +224,7 @@ def query(
                 columns=col_list,
                 limit=limit,
             )
-            check_database_scope(config, db_id, text)
+            check_read_scope(config, db_id, text)
             return rows
 
     _output(_run(_query()))
@@ -244,7 +244,7 @@ def comments(id_or_url: str, limit: int | None) -> None:
         async with _session(token) as session:
             # Scope check: fetch page first to get ancestors
             text, _ = await fetch_page(session, page_id)
-            check_scope(config, page_id, text)
+            check_read_scope(config, page_id, text)
             return await fetch_comments(session, page_id, limit=limit)
 
     _output(_run(_fetch()))
@@ -272,7 +272,7 @@ def create_page_cmd(parent_id: str, title: str | None, props: tuple[str, ...]) -
         async with _session(token) as session:
             # Scope check: fetch parent to get ancestors
             text, _ = await fetch_page(session, parent_id)
-            check_scope(config, parent_id, text)
+            check_write_scope(config, parent_id, text)
             return await create_page(
                 session, parent_id, title=title, properties=properties, content=body
             )
@@ -294,7 +294,7 @@ def update_page_cmd(id_or_url: str, props: tuple[str, ...]) -> None:
     async def _update() -> dict:
         async with _session(token) as session:
             text, _ = await fetch_page(session, page_id)
-            check_scope(config, page_id, text)
+            check_write_scope(config, page_id, text)
             return await update_page(session, page_id, properties=properties)
 
     _output(_run(_update()))
@@ -323,7 +323,7 @@ def comment_cmd(id_or_url: str, message: str | None) -> None:
     async def _comment() -> dict:
         async with _session(token) as session:
             text, _ = await fetch_page(session, page_id)
-            check_scope(config, page_id, text)
+            check_write_scope(config, page_id, text)
             return await create_comment(session, page_id, message=message)
 
     _output(_run(_comment()))

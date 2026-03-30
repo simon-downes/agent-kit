@@ -22,25 +22,40 @@ uv tool install -e .
 
 ## Configuration
 
-Config lives at `~/.agent-kit/config.yaml`. Missing file uses safe defaults (reads enabled, writes disabled).
+Config lives at `~/.agent-kit/config.yaml`. Missing file uses safe defaults (reads enabled, writes disabled, no scope restrictions).
 
 ```yaml
 notion:
-  operations:
-    read: true        # default: true
-    write: false      # default: false
-  scope:
-    pages: []         # page ID allowlist — empty = unrestricted
-    databases: []     # database ID allowlist — empty = unrestricted
+  read:
+    enabled: true       # default: true
+    scope:
+      pages: []         # page ID allowlist — empty = unrestricted
+      databases: []     # database ID allowlist — empty = unrestricted
+  write:
+    enabled: false      # default: false
+    scope:
+      pages: []         # page ID allowlist — empty = unrestricted (when writes enabled)
+      databases: []     # database ID allowlist — empty = unrestricted (when writes enabled)
 ```
 
 ### Access Scoping
 
-When `scope.pages` contains IDs, content operations (page, db, query, comments, writes) are restricted. A request is allowed if the target page ID or any of its ancestors is in the allowlist — so adding a parent page automatically grants access to all its descendants. Search is always unrestricted.
+Read and write operations have independent scopes. A request is allowed if the target resource ID or any of its ancestors is in the relevant allowlist — so adding a parent page automatically grants access to all its descendants.
 
-When `scope.databases` contains IDs, database operations are allowed if the database ID is in the list or any ancestor page is in `scope.pages`.
+Search is always unrestricted.
 
-Empty lists (default) allow unrestricted access.
+Example — read everything, write only under Platform:
+
+```yaml
+notion:
+  read:
+    enabled: true
+    # no scope = unrestricted reads
+  write:
+    enabled: true
+    scope:
+      pages: ["15b8a35c22c380a0a284c93ef2e7bedd"]  # Platform page
+```
 
 ## Notion Tool
 
