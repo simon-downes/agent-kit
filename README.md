@@ -102,7 +102,7 @@ Filtering (`--filter`), sorting (`--sort`), and column selection (`--columns`) a
 
 ### Write Operations
 
-Disabled by default. Set `notion.operations.write: true` in config to enable.
+Disabled by default. Set `notion.write.enabled: true` in config to enable.
 
 ```bash
 # Create a page
@@ -132,6 +132,78 @@ ak notion page <id> | jq .title
 
 Errors go to stderr with exit codes: 0 (success), 1 (error/permission), 2 (auth failure).
 
+## Linear Tool
+
+Requires `LINEAR_TOKEN` environment variable (personal API key). Communicates directly with
+Linear's GraphQL API.
+
+### Structure / Context
+
+```bash
+# List teams
+ak linear teams
+
+# Team details with workflow states, labels, members
+ak linear team PLAT
+
+# List projects (optionally filter by team)
+ak linear projects
+ak linear projects --team PLAT
+```
+
+### Issues
+
+```bash
+# List issues for a team (with optional filters)
+ak linear issues --team PLAT
+ak linear issues --team PLAT --status "In Progress" --limit 10
+ak linear issues --team PLAT --assignee "Simon" --label "Bug"
+ak linear issues --team PLAT --project "Q1 Roadmap"
+
+# Get full issue detail
+ak linear issue PLAT-123
+```
+
+Filters use friendly names — statuses, assignees, and labels are resolved to IDs automatically.
+
+### Create and Update
+
+```bash
+# Create an issue
+ak linear create-issue --team PLAT --title "Fix auth bug"
+ak linear create-issue --team PLAT --title "New feature" --status "Ready" --priority 2
+ak linear create-issue --team PLAT --title "With description" --description "Details here"
+echo "Long description" | ak linear create-issue --team PLAT --title "From stdin"
+
+# Update an issue
+ak linear update-issue PLAT-123 --status "Done"
+ak linear update-issue PLAT-123 --assignee "Simon" --priority 1
+ak linear update-issue PLAT-123 --label "Bug" --label "Urgent"
+```
+
+Priority values: 1 (urgent), 2 (high), 3 (medium), 4 (low).
+
+### Comments
+
+```bash
+# Read comments
+ak linear comments PLAT-123
+
+# Add a comment
+ak linear comment PLAT-123 --message "Looks good"
+echo "Detailed feedback" | ak linear comment PLAT-123
+```
+
+### File Upload
+
+```bash
+# Upload a file to Linear's storage, returns asset URL
+ak linear upload ./screenshot.png
+```
+
+The returned `assetUrl` can be embedded in issue descriptions or comments using markdown:
+`![screenshot](asset-url)` for images, `[filename](asset-url)` for other files.
+
 ## Project Structure
 
 ```
@@ -140,10 +212,14 @@ agent-kit/
 │   ├── cli.py                # Click CLI entry point
 │   ├── config.py             # Config loading and validation
 │   ├── mcp.py                # Generic MCP session context manager
-│   └── notion/
-│       ├── cli.py            # Notion subcommands
-│       ├── client.py         # MCP tool calls, response parsing, scope checks
-│       └── filters.py        # Post-processing filter parsing for query results
+│   ├── notion/
+│   │   ├── cli.py            # Notion subcommands
+│   │   ├── client.py         # MCP tool calls, response parsing, scope checks
+│   │   └── filters.py        # Post-processing filter parsing for query results
+│   └── linear/
+│       ├── cli.py            # Linear subcommands
+│       ├── client.py         # GraphQL client, queries, mutations
+│       └── resolve.py        # Name → ID resolution (statuses, assignees, labels)
 ├── tests/
 └── pyproject.toml
 ```
