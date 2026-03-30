@@ -174,6 +174,7 @@ def create_issue_cmd(
 @linear.command("update-issue")
 @click.argument("identifier")
 @click.option("--title", help="New title")
+@click.option("--description", help="New description (or pipe via stdin)")
 @click.option("--status", help="Status name")
 @click.option("--assignee", help="Assignee name")
 @click.option("--priority", type=click.IntRange(1, 4), help="Priority (1=urgent, 4=low)")
@@ -181,6 +182,7 @@ def create_issue_cmd(
 def update_issue_cmd(
     identifier: str,
     title: str | None,
+    description: str | None,
     status: str | None,
     assignee: str | None,
     priority: int | None,
@@ -188,6 +190,9 @@ def update_issue_cmd(
 ) -> None:
     """Update an issue."""
     client = _get_client()
+
+    if not description and not sys.stdin.isatty():
+        description = sys.stdin.read().strip() or None
 
     # Need team context for name resolution
     team_key: str | None = None
@@ -213,6 +218,7 @@ def update_issue_cmd(
             client,
             identifier,
             title=title,
+            description=description,
             state_id=state_id,
             assignee_id=assignee_id,
             priority=priority,

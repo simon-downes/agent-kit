@@ -284,6 +284,7 @@ def update_issue(
     identifier: str,
     *,
     title: str | None = None,
+    description: str | None = None,
     state_id: str | None = None,
     assignee_id: str | None = None,
     priority: int | None = None,
@@ -293,6 +294,8 @@ def update_issue(
     inp: dict[str, Any] = {}
     if title:
         inp["title"] = title
+    if description:
+        inp["description"] = description
     if state_id:
         inp["stateId"] = state_id
     if assignee_id:
