@@ -5,6 +5,7 @@ import click
 from agent_kit import __version__
 from agent_kit.linear.cli import linear
 from agent_kit.notion.cli import notion
+from agent_kit.slack.cli import slack
 
 
 @click.group()
@@ -15,3 +16,4 @@ def main() -> None:
 
 main.add_command(notion)
 main.add_command(linear)
+main.add_command(slack)
