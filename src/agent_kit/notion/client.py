@@ -8,6 +8,8 @@ from mcp import ClientSession
 
 from agent_kit.errors import ConfigError, ScopeError
 
+NOTION_MCP_URL = "https://mcp.notion.com/mcp"
+
 _ANCESTOR_RE = re.compile(r'<(?:parent-page|ancestor-\d+-page)\s+url="[^"]*?([a-f0-9]{32})"')
 
 
