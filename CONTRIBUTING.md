@@ -1,123 +1,180 @@
 # Contributing
 
-## Key Rules
-
-- Credentials come from environment variables — never implement auth flows in agent-kit
-- All command output is JSON to stdout, errors to stderr — no `rich` or colour output
-- Each service is a subcommand group (`ak <service> <command>`)
-- Write operations must check config permissions before executing
-- Scope checks happen after fetching — the response includes ancestor data used for validation
-
 ## Development Setup
-
-### Prerequisites
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/)
-
-### Setup
 
 ```bash
 cd agent-kit
-uv sync
+uv sync --extra dev
 uv run ak --help
 ```
 
-### Verify
-
-```bash
-uv run ak --version
-uv run ak notion --help
-```
-
-## Project Conventions
-
-### Code Organisation
+## Repository Layout
 
 ```
 src/agent_kit/
-├── cli.py            # Top-level Click group — registers service subcommands
-├── config.py         # Config loading, defaults, dataclasses
-├── mcp.py            # Generic MCP session context manager (not service-specific)
-└── <service>/        # One directory per service
-    ├── cli.py        # Click subcommands
-    ├── client.py     # API/MCP calls, response parsing, scope checks
-    └── filters.py    # Post-processing filter parsing for query results
+├── cli.py              # Top-level Click group — registers subcommand groups
+├── config.py           # Config loading (~/.agent-kit/config.yaml), defaults, deep merge
+├── errors.py           # Exception hierarchy, shared output(), @handle_errors decorator
+├── mcp.py              # Generic MCP session context manager
+├── auth/               # Credential management
+│   ├── __init__.py     # Credential store (YAML I/O, file permissions)
+│   ├── cli.py          # Auth subcommands (set, import, login, refresh, status)
+│   ├── oauth.py        # OAuth2 + PKCE flow
+│   └── providers.yaml  # Bundled OAuth provider definitions
+├── notion/             # Notion integration
+│   ├── cli.py          # Notion subcommands
+│   ├── client.py       # MCP tool calls, response parsing, scope checks
+│   └── filters.py      # Post-processing filter parsing for query results
+├── linear/             # Linear integration
+│   ├── cli.py          # Linear subcommands
+│   ├── client.py       # GraphQL client, queries, mutations
+│   └── resolve.py      # Name → ID resolution (statuses, assignees, labels)
+└── slack/              # Slack integration
+    ├── cli.py          # Slack subcommands
+    └── client.py       # Webhook HTTP calls
 ```
 
-### Adding a New Service
+## Architecture
 
-1. Create `src/agent_kit/<service>/` with `__init__.py`, `cli.py`, `client.py`
-2. Register the subcommand group in `src/agent_kit/cli.py`
-3. Add default config in `DEFAULT_CONFIG` in `config.py`
-4. Add config dataclasses following the `NotionConfig` pattern
-5. Update README with command reference
+### Layers
 
-### Adding a Command to an Existing Service
+Each service module has two layers:
 
-1. Add the MCP/API call in `client.py`
-2. Add the Click command in `cli.py`
-3. Gate writes with `require_write()`, reads with `require_read()`
-4. Check scope after fetching (responses include ancestor data for validation)
-5. Update README
-
-### Code Style
-
-Uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting. Configured in `pyproject.toml` (line length 100, Python 3.11 target).
-
-```bash
-# Check
-uv run ruff check src/
-uv run ruff format --check src/
-
-# Fix
-uv run ruff check src/ --fix
-uv run ruff format src/
-```
-
-### Output Conventions
-
-- JSON to stdout via `json.dumps(data, indent=2)` — must be valid, parseable by `jq`
-- Errors to stderr via `print(..., file=sys.stderr)` — plain text, no colour
-- Exit codes: 0 success, 1 error/permission, 2 auth failure
-- No `rich` dependency — agents are the primary consumer
+- **client.py** — API/protocol layer. Makes HTTP/MCP calls, parses responses, enforces
+  scope. Raises exceptions on errors. Never calls `sys.exit()`, never formats output.
+- **cli.py** — CLI layer. Click commands that call client functions, format output, and
+  handle user input (stdin, arguments). Error handling is via the `@handle_errors` decorator.
 
 ### Error Handling
 
-- Missing credentials → exit 2 with actionable message
-- Permission denied (config-gated) → exit 1
-- Scope violation → exit 1
-- MCP/API errors → unwrap ExceptionGroups, detect 401/429, exit with appropriate code
-- Never leak raw tracebacks to the user
+All errors flow through a single mechanism defined in `errors.py`:
 
-### Async Pattern
+**Exception hierarchy:**
+- `AgentKitError` — base, exit code 1
+- `AuthError(AgentKitError)` — credential/auth issues, exit code 2
+- `ConfigError(AgentKitError)` — configuration issues, exit code 1
+- `ScopeError(AgentKitError)` — resource outside configured scope, exit code 1
 
-MCP requires async. CLI commands bridge with `asyncio.run()`:
+**The `@handle_errors` decorator** is applied to every Click command. It catches all known
+exception types and exits with the appropriate code and message. Client code raises
+exceptions; the decorator handles them at the CLI boundary.
+
+```python
+@linear.command()
+@handle_errors
+def teams() -> None:
+    """List all teams."""
+    output(get_teams(_get_client()))
+```
+
+No try/except in command functions. No `sys.exit()` in client code.
+
+### Output
+
+- `output(data)` from `errors.py` — writes JSON to stdout (`json.dumps(data, indent=2)`)
+- `print("OK")` — for simple confirmations where JSON would be wasteful
+- `print(..., file=sys.stderr)` — errors and progress messages only
+- Prefer token-efficient output — don't wrap simple results in unnecessary structure
+
+### Config
+
+`config.py` provides `load_config()` which returns a dict deep-merged with `DEFAULT_CONFIG`.
+Services read their config section as a plain dict — no dataclasses.
+
+```python
+config = load_config()
+enabled = config.get("notion", {}).get("read", {}).get("enabled", True)
+```
+
+`save_config(data)` writes back to `~/.agent-kit/config.yaml`. Used by the OAuth flow to
+persist discovered endpoints.
+
+### Credentials
+
+`auth/__init__.py` provides `get_field(service, field)`, `set_field(service, field, value)`,
+and `set_fields(service, fields)`. Credentials live in `~/.agent-kit/credentials.yaml`
+(mode 0600).
+
+Service CLI modules resolve credentials with a fallback chain:
+
+```python
+token = get_field("notion", "access_token") or os.environ.get("NOTION_TOKEN")
+if not token:
+    raise AuthError("no Notion credentials — run 'ak auth set notion access_token'")
+```
+
+Credential store first, environment variable fallback, actionable error message.
+
+### Async (Notion only)
+
+Notion uses MCP which requires async. The pattern is:
 
 ```python
 @notion.command()
+@handle_errors
 def example() -> None:
     async def _do():
-        async with mcp_session(url, headers) as session:
-            return await session.call_tool(...)
-    _output(_run(_do()))
+        async with _session(token) as session:
+            return await search(session, query)
+    output(_run(_do()))
 ```
 
-The MCP session in `mcp.py` is a generic `async with` context manager — no manual `__aexit__` calls.
+`_run()` bridges to `asyncio.run()`. The `@handle_errors` decorator unwraps
+`ExceptionGroup` from anyio/MCP task groups automatically.
 
-## Testing
+Linear and Slack are synchronous (plain httpx).
+
+## Adding a New Service
+
+1. Create `src/agent_kit/<service>/` with `__init__.py`, `cli.py`, `client.py`
+2. **client.py** — API calls, response parsing. Raise exceptions on errors:
+   - `AuthError` for credential issues
+   - `ValueError` for not-found / validation errors
+   - Let `httpx.HTTPStatusError` propagate for HTTP errors
+3. **cli.py** — Click subcommand group with `@handle_errors` on every command
+4. Register the group in `src/agent_kit/cli.py`: `main.add_command(<service>)`
+5. Add credential config to `DEFAULT_CONFIG` in `config.py` under `auth`
+6. Add `docs/<service>.md` with full command reference
+7. Add summary to `README.md` tools section
+
+### Credential getter pattern
+
+```python
+def _get_client() -> ServiceClient:
+    """Get client from credential store or environment."""
+    from agent_kit.auth import get_field
+
+    key = get_field("myservice", "token") or os.environ.get("MYSERVICE_TOKEN")
+    if not key:
+        raise AuthError("no MyService credentials — run 'ak auth set myservice token'")
+    return ServiceClient(key)
+```
+
+### Access control pattern (if applicable)
+
+```python
+from agent_kit.errors import ConfigError
+
+def require_write(config: dict) -> None:
+    if not config.get("myservice", {}).get("write", {}).get("enabled", False):
+        raise ConfigError("MyService write operations are disabled in config")
+```
+
+## Adding a Command to an Existing Service
+
+1. Add the API call in `client.py` — raise exceptions on errors
+2. Add the Click command in `cli.py` with `@handle_errors`
+3. Gate writes with `require_write()`, reads with `require_read()` if applicable
+4. Update `docs/<service>.md`
+
+## Code Style
+
+Uses [ruff](https://docs.astral.sh/ruff/) (line length 100, Python 3.11 target).
 
 ```bash
-uv run python -m pytest
+uv run ruff check src/ && uv run ruff format --check src/
 ```
-
-Tests live in `tests/` mirroring `src/` structure.
 
 ## Commit Messages
 
-Uses [conventional commits](https://www.conventionalcommits.org/):
-
-- `feat:` — new commands or services
-- `fix:` — bug fixes
-- `docs:` — documentation
-- `chore:` — dependencies, config
+[Conventional commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `chore:`.

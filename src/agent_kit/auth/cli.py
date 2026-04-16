@@ -1,6 +1,5 @@
 """Auth CLI commands."""
 
-import json
 import os
 import secrets
 import sys
@@ -12,11 +11,7 @@ import click
 import yaml
 
 from agent_kit.auth import get_field, load_credentials, set_field, set_fields
-
-
-def _output(data: Any) -> None:
-    """Write JSON to stdout."""
-    print(json.dumps(data, indent=2))
+from agent_kit.errors import AuthError, handle_errors, output
 
 
 @click.group()
@@ -27,6 +22,7 @@ def auth() -> None:
 @auth.command(name="set")
 @click.argument("service")
 @click.argument("fields", nargs=-1, required=True)
+@handle_errors
 def set_cmd(service: str, fields: tuple[str, ...]) -> None:
     """Store credentials for a service.
 
@@ -38,17 +34,17 @@ def set_cmd(service: str, fields: tuple[str, ...]) -> None:
         else:
             value = sys.stdin.readline().strip()
             if not value:
-                print(f"Error: no value provided for {service}.{field}", file=sys.stderr)
-                sys.exit(1)
+                raise ValueError(f"no value provided for {service}.{field}")
 
         set_field(service, field, value)
 
-    _output({"ok": True, "message": f"Stored {len(fields)} field(s) for {service}"})
+    print("OK")
 
 
 @auth.command(name="import")
 @click.argument("service")
 @click.argument("env_vars", nargs=-1, required=True)
+@handle_errors
 def import_cmd(service: str, env_vars: tuple[str, ...]) -> None:
     """Import credentials from environment variables.
 
@@ -56,8 +52,7 @@ def import_cmd(service: str, env_vars: tuple[str, ...]) -> None:
     """
     missing = [v for v in env_vars if v not in os.environ]
     if missing:
-        print(f"Error: missing environment variables: {', '.join(missing)}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"missing environment variables: {', '.join(missing)}")
 
     for var in env_vars:
         field = var.lower()
@@ -66,11 +61,12 @@ def import_cmd(service: str, env_vars: tuple[str, ...]) -> None:
             field = field[len(prefix) :]
         set_field(service, field, os.environ[var])
 
-    _output({"ok": True, "message": f"Imported {len(env_vars)} field(s) for {service}"})
+    print("OK")
 
 
 @auth.command(name="login")
 @click.argument("service")
+@handle_errors
 def login_cmd(service: str) -> None:
     """Authenticate with an OAuth service via browser."""
     from agent_kit.auth.oauth import (
@@ -89,8 +85,7 @@ def login_cmd(service: str) -> None:
     auth_config = raw_config.get("auth", {}).get(service, {})
 
     if auth_config.get("type") != "oauth":
-        print(f"Error: {service} is not an OAuth provider", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError(f"{service} is not an OAuth provider")
 
     redirect_uri = f"http://localhost:{CALLBACK_PORT}/callback"
 
@@ -101,34 +96,24 @@ def login_cmd(service: str) -> None:
             server_url = _lookup_provider(service)
 
         if not server_url:
-            print(f"Error: no server_url configured for {service}", file=sys.stderr)
-            sys.exit(1)
+            raise AuthError(f"no server_url configured for {service}")
 
-        click.echo("Discovering OAuth endpoints...")
-        try:
-            metadata = discover_endpoints(server_url)
-            auth_config["authorization_endpoint"] = metadata["authorization_endpoint"]
-            auth_config["token_endpoint"] = metadata["token_endpoint"]
-            if "registration_endpoint" in metadata:
-                auth_config["registration_endpoint"] = metadata["registration_endpoint"]
-        except Exception as e:
-            print(f"Error: failed to discover endpoints: {e}", file=sys.stderr)
-            sys.exit(1)
+        click.echo("Discovering OAuth endpoints...", err=True)
+        metadata = discover_endpoints(server_url)
+        auth_config["authorization_endpoint"] = metadata["authorization_endpoint"]
+        auth_config["token_endpoint"] = metadata["token_endpoint"]
+        if "registration_endpoint" in metadata:
+            auth_config["registration_endpoint"] = metadata["registration_endpoint"]
 
     # Register client if needed
     if "client_id" not in auth_config:
         reg_endpoint = auth_config.get("registration_endpoint")
         if not reg_endpoint:
-            print(f"Error: no client_id or registration_endpoint for {service}", file=sys.stderr)
-            sys.exit(1)
+            raise AuthError(f"no client_id or registration_endpoint for {service}")
 
-        click.echo("Registering OAuth client...")
-        try:
-            client_data = register_client(reg_endpoint, redirect_uri)
-            auth_config["client_id"] = client_data["client_id"]
-        except Exception as e:
-            print(f"Error: client registration failed: {e}", file=sys.stderr)
-            sys.exit(1)
+        click.echo("Registering OAuth client...", err=True)
+        client_data = register_client(reg_endpoint, redirect_uri)
+        auth_config["client_id"] = client_data["client_id"]
 
     # Write discovered config back
     raw_config.setdefault("auth", {})[service] = auth_config
@@ -147,34 +132,27 @@ def login_cmd(service: str) -> None:
     )
 
     if not open_browser(auth_url):
-        click.echo(f"\nOpen this URL in your browser:\n{auth_url}\n")
+        click.echo(f"\nOpen this URL in your browser:\n{auth_url}\n", err=True)
 
-    click.echo("Waiting for authentication...")
+    click.echo("Waiting for authentication...", err=True)
     code, returned_state, error = wait_for_callback()
 
     if error:
-        print(f"Error: authentication failed: {error}", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError(f"authentication failed: {error}")
 
     if not code:
-        print("Error: authentication timed out", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError("authentication timed out")
 
     if returned_state != state:
-        print("Error: state mismatch — possible CSRF attack", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError("state mismatch — possible CSRF attack")
 
-    try:
-        tokens = exchange_code(
-            auth_config["token_endpoint"],
-            auth_config["client_id"],
-            code,
-            verifier,
-            redirect_uri,
-        )
-    except Exception as e:
-        print(f"Error: token exchange failed: {e}", file=sys.stderr)
-        sys.exit(1)
+    tokens = exchange_code(
+        auth_config["token_endpoint"],
+        auth_config["client_id"],
+        code,
+        verifier,
+        redirect_uri,
+    )
 
     token_data = {"access_token": tokens["access_token"]}
     if "refresh_token" in tokens:
@@ -184,11 +162,12 @@ def login_cmd(service: str) -> None:
         token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
     set_fields(service, token_data)
 
-    _output({"ok": True, "message": f"Authenticated with {service}"})
+    print("OK")
 
 
 @auth.command(name="refresh")
 @click.argument("service")
+@handle_errors
 def refresh_cmd(service: str) -> None:
     """Refresh OAuth tokens for a service."""
     from agent_kit.auth.oauth import refresh_token
@@ -198,22 +177,16 @@ def refresh_cmd(service: str) -> None:
     auth_config = raw_config.get("auth", {}).get(service, {})
 
     if auth_config.get("type") != "oauth":
-        print(f"Error: {service} is not an OAuth provider", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError(f"{service} is not an OAuth provider")
 
     token_endpoint = auth_config.get("token_endpoint")
     client_id = auth_config.get("client_id")
     stored_refresh = get_field(service, "refresh_token")
 
     if not all([token_endpoint, client_id, stored_refresh]):
-        print(f"Error: missing config or refresh token for {service}", file=sys.stderr)
-        sys.exit(1)
+        raise AuthError(f"missing config or refresh token for {service}")
 
-    try:
-        tokens = refresh_token(token_endpoint, client_id, stored_refresh)
-    except Exception as e:
-        print(f"Error: token refresh failed: {e}", file=sys.stderr)
-        sys.exit(1)
+    tokens = refresh_token(token_endpoint, client_id, stored_refresh)
 
     token_data = {"access_token": tokens["access_token"]}
     if "refresh_token" in tokens:
@@ -223,10 +196,11 @@ def refresh_cmd(service: str) -> None:
         token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
     set_fields(service, token_data)
 
-    _output({"ok": True, "message": f"Refreshed tokens for {service}"})
+    print("OK")
 
 
 @auth.command(name="status")
+@handle_errors
 def status_cmd() -> None:
     """Show credential status for all services."""
     creds = load_credentials()
@@ -244,7 +218,7 @@ def status_cmd() -> None:
             except (ValueError, TypeError):
                 pass
         services[service] = info
-    _output(services)
+    output(services)
 
 
 def _lookup_provider(service: str) -> str | None:

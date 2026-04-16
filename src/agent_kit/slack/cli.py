@@ -3,11 +3,10 @@
 import json
 import os
 import sys
-from typing import Any
 
 import click
-import httpx
 
+from agent_kit.errors import AuthError, handle_errors
 from agent_kit.slack.client import send_message, send_raw
 
 
@@ -17,14 +16,8 @@ def _get_webhook_url() -> str:
 
     url = get_field("slack", "webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
     if not url:
-        print("Error: no Slack credentials — run 'ak auth set slack webhook_url'", file=sys.stderr)
-        sys.exit(2)
+        raise AuthError("no Slack credentials — run 'ak auth set slack webhook_url'")
     return url
-
-
-def _output(data: Any) -> None:
-    """Write JSON to stdout."""
-    print(json.dumps(data, indent=2))
 
 
 @click.group()
@@ -37,6 +30,7 @@ def slack() -> None:
 @click.option("--header", help="Header block text")
 @click.option("--field", "fields", multiple=True, help="Key=Value field (repeatable)")
 @click.option("--json", "use_json", is_flag=True, help="Read raw JSON payload from stdin")
+@handle_errors
 def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json: bool) -> None:
     """Send a message to Slack.
 
@@ -48,48 +42,29 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
     if use_json:
         raw = sys.stdin.read().strip()
         if not raw:
-            print("Error: no JSON payload on stdin", file=sys.stderr)
-            sys.exit(1)
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as e:
-            print(f"Error: invalid JSON: {e}", file=sys.stderr)
-            sys.exit(1)
-        try:
-            send_raw(url, payload)
-        except httpx.HTTPStatusError as e:
-            print(
-                f"Error: Slack returned {e.response.status_code}: {e.response.text}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        _output({"ok": True})
+            raise ValueError("no JSON payload on stdin")
+        payload = json.loads(raw)
+        send_raw(url, payload)
+        print("OK")
         return
 
     # Read text from stdin if not provided as argument
     if not text:
         if sys.stdin.isatty():
-            print("Error: provide message text as argument or via stdin", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError("provide message text as argument or via stdin")
         text = sys.stdin.read().strip()
 
     if not text:
-        print("Error: empty message", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("empty message")
 
     parsed_fields = None
     if fields:
         parsed_fields = []
         for f in fields:
             if "=" not in f:
-                print(f"Error: invalid field format '{f}', expected Key=Value", file=sys.stderr)
-                sys.exit(1)
+                raise ValueError(f"invalid field format '{f}', expected Key=Value")
             k, v = f.split("=", 1)
             parsed_fields.append((k, v))
 
-    try:
-        send_message(url, text, header=header, fields=parsed_fields)
-    except httpx.HTTPStatusError as e:
-        print(f"Error: Slack returned {e.response.status_code}: {e.response.text}", file=sys.stderr)
-        sys.exit(1)
-    _output({"ok": True})
+    send_message(url, text, header=header, fields=parsed_fields)
+    print("OK")

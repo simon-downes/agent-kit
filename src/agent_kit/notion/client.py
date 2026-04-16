@@ -6,17 +6,9 @@ from typing import Any
 
 from mcp import ClientSession
 
-NOTION_MCP_URL = "https://mcp.notion.com/mcp"
+from agent_kit.errors import ConfigError, ScopeError
 
 _ANCESTOR_RE = re.compile(r'<(?:parent-page|ancestor-\d+-page)\s+url="[^"]*?([a-f0-9]{32})"')
-
-
-class ScopeError(Exception):
-    """Raised when a resource is outside configured scope."""
-
-
-class ConfigError(Exception):
-    """Raised when a configuration check fails."""
 
 
 def require_read(config: dict) -> None:

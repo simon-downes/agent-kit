@@ -4,16 +4,14 @@ import asyncio
 import json
 import os
 import sys
-from typing import Any
 
 import click
 
 from agent_kit.config import load_config
+from agent_kit.errors import AuthError, handle_errors, output
 from agent_kit.mcp import mcp_session
 from agent_kit.notion.client import (
     NOTION_MCP_URL,
-    ConfigError,
-    ScopeError,
     check_read_scope,
     check_write_scope,
     create_comment,
@@ -38,45 +36,13 @@ def _get_token() -> str:
 
     token = get_field("notion", "access_token") or os.environ.get("NOTION_TOKEN")
     if not token:
-        print(
-            "Error: no Notion credentials — run 'ak auth set notion access_token'",
-            file=sys.stderr,
-        )
-        sys.exit(2)
+        raise AuthError("no Notion credentials — run 'ak auth set notion access_token'")
     return token
 
 
-def _output(data: Any) -> None:
-    """Write JSON to stdout."""
-    print(json.dumps(data, indent=2))
-
-
-def _run(coro: Any) -> Any:
+def _run(coro):
     """Bridge sync Click command to async MCP call."""
-    try:
-        return asyncio.run(coro)
-    except Exception as e:
-        # Unwrap nested ExceptionGroups (from anyio/MCP task groups)
-        cause = e
-        while isinstance(cause, ExceptionGroup) and cause.exceptions:
-            cause = cause.exceptions[0]
-
-        if isinstance(cause, (ScopeError, ConfigError)):
-            print(f"Error: {cause}", file=sys.stderr)
-            sys.exit(1)
-
-        msg = str(cause)
-        if "401" in msg or "Unauthorized" in msg:
-            print(
-                "Error: Notion authentication failed (token may be expired)",
-                file=sys.stderr,
-            )
-            sys.exit(2)
-        if "429" in msg or "rate limit" in msg.lower():
-            print("Error: Notion rate limit exceeded, try again later", file=sys.stderr)
-            sys.exit(1)
-        print(f"Error: {cause}", file=sys.stderr)
-        sys.exit(1)
+    return asyncio.run(coro)
 
 
 def _parse_props(props: tuple[str, ...]) -> dict[str, str]:
@@ -84,11 +50,7 @@ def _parse_props(props: tuple[str, ...]) -> dict[str, str]:
     result = {}
     for p in props:
         if "=" not in p:
-            print(
-                f"Error: invalid property format: {p!r} (expected Key=Value)",
-                file=sys.stderr,
-            )
-            sys.exit(1)
+            raise ValueError(f"invalid property format: {p!r} (expected Key=Value)")
         key, value = p.split("=", 1)
         result[key.strip()] = value.strip()
     return result
@@ -116,6 +78,7 @@ def notion() -> None:
     type=click.Choice(["page", "database"]),
     help="Filter by type",
 )
+@handle_errors
 def search_cmd(query: str, limit: int, filter_type: str | None) -> None:
     """Search the Notion workspace."""
     config = load_config()
@@ -126,13 +89,14 @@ def search_cmd(query: str, limit: int, filter_type: str | None) -> None:
         async with _session(token) as session:
             return await search(session, query, limit=limit, filter_type=filter_type)
 
-    _output(_run(_search()))
+    output(_run(_search()))
 
 
 @notion.command()
 @click.argument("id_or_url")
 @click.option("--markdown", is_flag=True, help="Output as markdown instead of JSON")
 @click.option("--properties", is_flag=True, help="Include page properties")
+@handle_errors
 def page(id_or_url: str, markdown: bool, properties: bool) -> None:
     """Fetch a Notion page by ID or URL."""
     config = load_config()
@@ -154,12 +118,13 @@ def page(id_or_url: str, markdown: bool, properties: bool) -> None:
             text = json.dumps(text, indent=2)
         print(text)
     else:
-        _output(result)
+        output(result)
 
 
 @notion.command()
 @click.argument("id_or_url")
 @click.option("--views", is_flag=True, help="List available views")
+@handle_errors
 def db(id_or_url: str, views: bool) -> None:
     """Fetch a Notion database schema."""
     config = load_config()
@@ -175,7 +140,7 @@ def db(id_or_url: str, views: bool) -> None:
                 return list_view_names(text)
             return result
 
-    _output(_run(_fetch()))
+    output(_run(_fetch()))
 
 
 @notion.command()
@@ -185,6 +150,7 @@ def db(id_or_url: str, views: bool) -> None:
 @click.option("--sort", "sort_expr", help="Sort as property:asc or property:desc")
 @click.option("--columns", help="Comma-separated list of properties to include")
 @click.option("--limit", default=None, type=int, help="Maximum results to return")
+@handle_errors
 def query(
     id_or_url: str,
     view_name: str | None,
@@ -233,12 +199,13 @@ def query(
             check_read_scope(config, db_id, text)
             return rows
 
-    _output(_run(_query()))
+    output(_run(_query()))
 
 
 @notion.command()
 @click.argument("id_or_url")
 @click.option("--limit", default=None, type=int, help="Maximum results to return")
+@handle_errors
 def comments(id_or_url: str, limit: int | None) -> None:
     """Fetch comments on a Notion page."""
     config = load_config()
@@ -253,7 +220,7 @@ def comments(id_or_url: str, limit: int | None) -> None:
             check_read_scope(config, page_id, text)
             return await fetch_comments(session, page_id, limit=limit)
 
-    _output(_run(_fetch()))
+    output(_run(_fetch()))
 
 
 # --- Write commands ---
@@ -263,6 +230,7 @@ def comments(id_or_url: str, limit: int | None) -> None:
 @click.argument("parent_id")
 @click.option("--title", help="Page title")
 @click.option("--prop", "props", multiple=True, help="Property as Key=Value (repeatable)")
+@handle_errors
 def create_page_cmd(parent_id: str, title: str | None, props: tuple[str, ...]) -> None:
     """Create a new Notion page."""
     config = load_config()
@@ -283,12 +251,13 @@ def create_page_cmd(parent_id: str, title: str | None, props: tuple[str, ...]) -
                 session, parent_id, title=title, properties=properties, content=body
             )
 
-    _output(_run(_create()))
+    output(_run(_create()))
 
 
 @notion.command("update-page")
 @click.argument("id_or_url")
 @click.option("--prop", "props", multiple=True, help="Property as Key=Value (repeatable)")
+@handle_errors
 def update_page_cmd(id_or_url: str, props: tuple[str, ...]) -> None:
     """Update a Notion page's properties."""
     config = load_config()
@@ -303,12 +272,13 @@ def update_page_cmd(id_or_url: str, props: tuple[str, ...]) -> None:
             check_write_scope(config, page_id, text)
             return await update_page(session, page_id, properties=properties)
 
-    _output(_run(_update()))
+    output(_run(_update()))
 
 
 @notion.command("comment")
 @click.argument("id_or_url")
 @click.option("--message", "-m", help="Comment message")
+@handle_errors
 def comment_cmd(id_or_url: str, message: str | None) -> None:
     """Add a comment to a Notion page."""
     config = load_config()
@@ -318,13 +288,11 @@ def comment_cmd(id_or_url: str, message: str | None) -> None:
 
     if not message:
         if sys.stdin.isatty():
-            print("Error: provide --message or pipe content via stdin", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError("provide --message or pipe content via stdin")
         message = sys.stdin.read().strip()
 
     if not message:
-        print("Error: empty comment message", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("empty comment message")
 
     async def _comment() -> dict:
         async with _session(token) as session:
@@ -332,4 +300,4 @@ def comment_cmd(id_or_url: str, message: str | None) -> None:
             check_write_scope(config, page_id, text)
             return await create_comment(session, page_id, message=message)
 
-    _output(_run(_comment()))
+    output(_run(_comment()))

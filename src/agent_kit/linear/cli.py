@@ -1,13 +1,11 @@
 """Linear CLI subcommands."""
 
-import json
 import os
 import sys
-from typing import Any
 
 import click
-import httpx
 
+from agent_kit.errors import AuthError, handle_errors, output
 from agent_kit.linear.client import (
     LinearClient,
     create_comment,
@@ -35,29 +33,8 @@ def _get_client() -> LinearClient:
 
     key = get_field("linear", "token") or os.environ.get("LINEAR_TOKEN")
     if not key:
-        print("Error: no Linear credentials — run 'ak auth set linear token'", file=sys.stderr)
-        sys.exit(2)
+        raise AuthError("no Linear credentials — run 'ak auth set linear token'")
     return LinearClient(key)
-
-
-def _output(data: Any) -> None:
-    """Write JSON to stdout."""
-    print(json.dumps(data, indent=2))
-
-
-def _run(fn: Any) -> Any:
-    """Call fn, catch client exceptions and exit cleanly."""
-    try:
-        return fn()
-    except (ValueError, FileNotFoundError) as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 401:
-            print("Error: Linear authentication failed (invalid API key)", file=sys.stderr)
-            sys.exit(2)
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
 
 
 @click.group()
@@ -66,23 +43,26 @@ def linear() -> None:
 
 
 @linear.command()
+@handle_errors
 def teams() -> None:
     """List all teams."""
-    _output(_run(lambda: get_teams(_get_client())))
+    output(get_teams(_get_client()))
 
 
 @linear.command()
 @click.argument("id_or_key")
+@handle_errors
 def team(id_or_key: str) -> None:
     """Get team details including workflow states."""
-    _output(_run(lambda: get_team(_get_client(), id_or_key)))
+    output(get_team(_get_client(), id_or_key))
 
 
 @linear.command()
 @click.option("--team", "team_key", help="Filter by team key")
+@handle_errors
 def projects(team_key: str | None) -> None:
     """List projects."""
-    _output(_run(lambda: get_projects(_get_client(), team_key=team_key)))
+    output(get_projects(_get_client(), team_key=team_key))
 
 
 def _resolve_filters(
@@ -107,6 +87,7 @@ def _resolve_filters(
 @click.option("--label", help="Filter by label name")
 @click.option("--project", "project_name", help="Filter by project name")
 @click.option("--limit", default=50, help="Maximum results")
+@handle_errors
 def issues(
     team_key: str,
     status: str | None,
@@ -117,32 +98,27 @@ def issues(
 ) -> None:
     """List issues for a team."""
     client = _get_client()
-    try:
-        resolved = _resolve_filters(client, team_key, status=status, assignee=assignee, label=label)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    resolved = _resolve_filters(client, team_key, status=status, assignee=assignee, label=label)
 
-    _output(
-        _run(
-            lambda: get_issues(
-                client,
-                team_id=resolved["team_id"],
-                status_id=resolved.get("status_id"),
-                assignee_id=resolved.get("assignee_id"),
-                label_id=resolved.get("label_id"),
-                project_name=project_name,
-                limit=limit,
-            )
+    output(
+        get_issues(
+            client,
+            team_id=resolved["team_id"],
+            status_id=resolved.get("status_id"),
+            assignee_id=resolved.get("assignee_id"),
+            label_id=resolved.get("label_id"),
+            project_name=project_name,
+            limit=limit,
         )
     )
 
 
 @linear.command()
 @click.argument("identifier")
+@handle_errors
 def issue(identifier: str) -> None:
     """Get issue details by identifier (e.g. PLAT-123)."""
-    _output(_run(lambda: get_issue(_get_client(), identifier)))
+    output(get_issue(_get_client(), identifier))
 
 
 @linear.command("create-issue")
@@ -153,6 +129,7 @@ def issue(identifier: str) -> None:
 @click.option("--assignee", help="Assignee name")
 @click.option("--priority", type=click.IntRange(1, 4), help="Priority (1=urgent, 4=low)")
 @click.option("--label", "labels", multiple=True, help="Label name (repeatable)")
+@handle_errors
 def create_issue_cmd(
     team_key: str,
     title: str,
@@ -168,27 +145,21 @@ def create_issue_cmd(
     if not description and not sys.stdin.isatty():
         description = sys.stdin.read().strip() or None
 
-    try:
-        team_id = resolve_team_id(client, team_key)
-        state_id = resolve_status(client, team_key, status) if status else None
-        assignee_id = resolve_assignee(client, team_key, assignee) if assignee else None
-        label_ids = resolve_labels(client, team_key, list(labels)) if labels else None
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    team_id = resolve_team_id(client, team_key)
+    state_id = resolve_status(client, team_key, status) if status else None
+    assignee_id = resolve_assignee(client, team_key, assignee) if assignee else None
+    label_ids = resolve_labels(client, team_key, list(labels)) if labels else None
 
-    _output(
-        _run(
-            lambda: create_issue(
-                client,
-                team_id=team_id,
-                title=title,
-                description=description,
-                state_id=state_id,
-                assignee_id=assignee_id,
-                priority=priority,
-                label_ids=label_ids,
-            )
+    output(
+        create_issue(
+            client,
+            team_id=team_id,
+            title=title,
+            description=description,
+            state_id=state_id,
+            assignee_id=assignee_id,
+            priority=priority,
+            label_ids=label_ids,
         )
     )
 
@@ -201,6 +172,7 @@ def create_issue_cmd(
 @click.option("--assignee", help="Assignee name")
 @click.option("--priority", type=click.IntRange(1, 4), help="Priority (1=urgent, 4=low)")
 @click.option("--label", "labels", multiple=True, help="Label name (repeatable, replaces all)")
+@handle_errors
 def update_issue_cmd(
     identifier: str,
     title: str | None,
@@ -219,65 +191,57 @@ def update_issue_cmd(
     # Need team context for name resolution
     team_key: str | None = None
     if status or assignee or labels:
-        detail = _run(lambda: get_issue(client, identifier))
+        detail = get_issue(client, identifier)
         team_key = detail.get("team")
         if not team_key:
-            print("Error: could not determine team for issue", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError("could not determine team for issue")
 
-    try:
-        state_id = resolve_status(client, team_key, status) if status and team_key else None
-        assignee_id = (
-            resolve_assignee(client, team_key, assignee) if assignee and team_key else None
-        )
-        label_ids = resolve_labels(client, team_key, list(labels)) if labels and team_key else None
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    state_id = resolve_status(client, team_key, status) if status and team_key else None
+    assignee_id = resolve_assignee(client, team_key, assignee) if assignee and team_key else None
+    label_ids = resolve_labels(client, team_key, list(labels)) if labels and team_key else None
 
-    _output(
-        _run(
-            lambda: update_issue(
-                client,
-                identifier,
-                title=title,
-                description=description,
-                state_id=state_id,
-                assignee_id=assignee_id,
-                priority=priority,
-                label_ids=label_ids,
-            )
+    output(
+        update_issue(
+            client,
+            identifier,
+            title=title,
+            description=description,
+            state_id=state_id,
+            assignee_id=assignee_id,
+            priority=priority,
+            label_ids=label_ids,
         )
     )
 
 
 @linear.command()
 @click.argument("identifier")
+@handle_errors
 def comments(identifier: str) -> None:
     """List comments on an issue."""
-    _output(_run(lambda: get_comments(_get_client(), identifier)))
+    output(get_comments(_get_client(), identifier))
 
 
 @linear.command("comment")
 @click.argument("identifier")
 @click.option("--message", "-m", help="Comment body")
+@handle_errors
 def comment_cmd(identifier: str, message: str | None) -> None:
     """Add a comment to an issue."""
     if not message:
         if sys.stdin.isatty():
-            print("Error: provide --message or pipe content via stdin", file=sys.stderr)
-            sys.exit(1)
+            raise ValueError("provide --message or pipe content via stdin")
         message = sys.stdin.read().strip()
 
     if not message:
-        print("Error: empty comment message", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("empty comment message")
 
-    _output(_run(lambda: create_comment(_get_client(), identifier, body=message)))
+    output(create_comment(_get_client(), identifier, body=message))
 
 
 @linear.command()
 @click.argument("file_path", type=click.Path(exists=True))
+@handle_errors
 def upload(file_path: str) -> None:
     """Upload a file to Linear's storage."""
-    _output(_run(lambda: upload_file(_get_client(), file_path)))
+    output(upload_file(_get_client(), file_path))
