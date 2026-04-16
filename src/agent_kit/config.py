@@ -8,6 +8,7 @@ import yaml
 CONFIG_PATH = Path("~/.agent-kit/config.yaml").expanduser()
 
 DEFAULT_CONFIG = {
+    "brain_dir": "~/.archie/brain",
     "auth": {
         "notion": {"type": "oauth"},
         "linear": {"type": "static", "fields": ["token"]},

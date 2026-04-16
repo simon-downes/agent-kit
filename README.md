@@ -57,6 +57,10 @@ ak slack send "Deploy complete :white_check_mark:"
 
 Credential management — store tokens, OAuth login, import from environment.
 
+### [Brain](docs/brain.md)
+
+Query and manage the second brain — index lookups, context creation, status, validation.
+
 ### [Notion](docs/notion.md)
 
 Search, fetch pages/databases, query database views, create/update pages, add comments.
@@ -87,6 +91,7 @@ ak linear issues --team PLAT | jq '.[].identifier'
 ## Documentation
 
 - [Auth](docs/auth.md) — credential management
+- [Brain](docs/brain.md) — second brain management
 - [Notion](docs/notion.md) — Notion integration
 - [Linear](docs/linear.md) — Linear integration
 - [Slack](docs/slack.md) — Slack integration
