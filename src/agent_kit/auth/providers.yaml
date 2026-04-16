@@ -1,0 +1,7 @@
+# OAuth Providers Configuration
+
+# Providers that support dynamic discovery (RFC 8414) and dynamic client registration (RFC 7591)
+providers:
+  notion:
+    name: "Notion"
+    server_url: "https://mcp.notion.com"

@@ -32,10 +32,15 @@ from agent_kit.notion.filters import parse_filter
 
 
 def _get_token() -> str:
-    """Get NOTION_TOKEN from environment or exit."""
-    token = os.environ.get("NOTION_TOKEN")
+    """Get Notion token from credential store or environment."""
+    from agent_kit.auth import get_field
+
+    token = get_field("notion", "access_token") or os.environ.get("NOTION_TOKEN")
     if not token:
-        print("Error: NOTION_TOKEN environment variable is not set", file=sys.stderr)
+        print(
+            "Error: no Notion credentials — run 'ak auth set notion access_token'",
+            file=sys.stderr,
+        )
         sys.exit(2)
     return token
 

@@ -9,6 +9,17 @@ import yaml
 CONFIG_PATH = Path("~/.agent-kit/config.yaml").expanduser()
 
 DEFAULT_CONFIG = {
+    "auth": {
+        "notion": {"type": "oauth"},
+        "linear": {"type": "static", "fields": ["token"]},
+        "slack": {"type": "static", "fields": ["webhook_url"]},
+        "github": {"type": "static", "fields": ["token"]},
+        "aws": {
+            "type": "static",
+            "fields": ["access_key_id", "secret_access_key", "session_token"],
+        },
+        "scalr": {"type": "static", "fields": ["token", "hostname"]},
+    },
     "notion": {
         "read": {"enabled": True, "scope": {"pages": [], "databases": []}},
         "write": {"enabled": False, "scope": {"pages": [], "databases": []}},
@@ -82,3 +93,41 @@ def load_config() -> Config:
         sys.exit(1)
 
     return _build_config(raw)
+
+
+def load_raw_config() -> dict:
+    """Load raw config dict from YAML file, merged with defaults."""
+    raw = {}
+    if CONFIG_PATH.exists():
+        try:
+            raw = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+        except Exception as e:
+            print(f"Error reading config {CONFIG_PATH}: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        if not isinstance(raw, dict):
+            print(
+                f"Error: config file must be a YAML mapping, got {type(raw).__name__}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Deep merge: defaults first, file overrides
+    merged = {}
+    for key in set(list(DEFAULT_CONFIG.keys()) + list(raw.keys())):
+        default_val = DEFAULT_CONFIG.get(key)
+        raw_val = raw.get(key)
+        if isinstance(default_val, dict) and isinstance(raw_val, dict):
+            merged[key] = {**default_val, **raw_val}
+        elif raw_val is not None:
+            merged[key] = raw_val
+        elif default_val is not None:
+            merged[key] = default_val
+
+    return merged
+
+
+def save_config(data: dict) -> None:
+    """Write config to YAML file."""
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))

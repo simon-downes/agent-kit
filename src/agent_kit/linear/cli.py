@@ -29,10 +29,12 @@ from agent_kit.linear.resolve import (
 
 
 def _get_client() -> LinearClient:
-    """Get a LinearClient or exit if no API key."""
-    key = os.environ.get("LINEAR_TOKEN")
+    """Get a LinearClient from credential store or environment."""
+    from agent_kit.auth import get_field
+
+    key = get_field("linear", "token") or os.environ.get("LINEAR_TOKEN")
     if not key:
-        print("Error: LINEAR_TOKEN environment variable is not set", file=sys.stderr)
+        print("Error: no Linear credentials — run 'ak auth set linear token'", file=sys.stderr)
         sys.exit(2)
     return LinearClient(key)
 

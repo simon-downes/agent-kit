@@ -10,10 +10,12 @@ from agent_kit.slack.client import send_message, send_raw
 
 
 def _get_webhook_url() -> str:
-    """Get webhook URL from environment or exit."""
-    url = os.environ.get("SLACK_WEBHOOK_URL")
+    """Get webhook URL from credential store or environment."""
+    from agent_kit.auth import get_field
+
+    url = get_field("slack", "webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
     if not url:
-        print("Error: SLACK_WEBHOOK_URL environment variable is not set", file=sys.stderr)
+        print("Error: no Slack credentials — run 'ak auth set slack webhook_url'", file=sys.stderr)
         sys.exit(2)
     return url
 
