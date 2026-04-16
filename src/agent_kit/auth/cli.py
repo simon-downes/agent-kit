@@ -1,15 +1,22 @@
 """Auth CLI commands."""
 
+import json
 import os
 import secrets
 import sys
 from datetime import UTC, datetime
 from importlib.resources import as_file, files
+from typing import Any
 
 import click
 import yaml
 
 from agent_kit.auth import get_field, load_credentials, set_field, set_fields
+
+
+def _output(data: Any) -> None:
+    """Write JSON to stdout."""
+    print(json.dumps(data, indent=2))
 
 
 @click.group()
@@ -36,7 +43,7 @@ def set_cmd(service: str, fields: tuple[str, ...]) -> None:
 
         set_field(service, field, value)
 
-    click.echo(f"Stored {len(fields)} field(s) for {service}")
+    _output({"ok": True, "message": f"Stored {len(fields)} field(s) for {service}"})
 
 
 @auth.command(name="import")
@@ -59,7 +66,7 @@ def import_cmd(service: str, env_vars: tuple[str, ...]) -> None:
             field = field[len(prefix) :]
         set_field(service, field, os.environ[var])
 
-    click.echo(f"Imported {len(env_vars)} field(s) for {service}")
+    _output({"ok": True, "message": f"Imported {len(env_vars)} field(s) for {service}"})
 
 
 @auth.command(name="login")
@@ -76,9 +83,9 @@ def login_cmd(service: str) -> None:
         register_client,
         wait_for_callback,
     )
-    from agent_kit.config import load_raw_config, save_config
+    from agent_kit.config import load_config, save_config
 
-    raw_config = load_raw_config()
+    raw_config = load_config()
     auth_config = raw_config.get("auth", {}).get(service, {})
 
     if auth_config.get("type") != "oauth":
@@ -177,7 +184,7 @@ def login_cmd(service: str) -> None:
         token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
     set_fields(service, token_data)
 
-    click.echo(f"Authenticated with {service}")
+    _output({"ok": True, "message": f"Authenticated with {service}"})
 
 
 @auth.command(name="refresh")
@@ -185,9 +192,9 @@ def login_cmd(service: str) -> None:
 def refresh_cmd(service: str) -> None:
     """Refresh OAuth tokens for a service."""
     from agent_kit.auth.oauth import refresh_token
-    from agent_kit.config import load_raw_config
+    from agent_kit.config import load_config
 
-    raw_config = load_raw_config()
+    raw_config = load_config()
     auth_config = raw_config.get("auth", {}).get(service, {})
 
     if auth_config.get("type") != "oauth":
@@ -216,33 +223,28 @@ def refresh_cmd(service: str) -> None:
         token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
     set_fields(service, token_data)
 
-    click.echo(f"Refreshed tokens for {service}")
+    _output({"ok": True, "message": f"Refreshed tokens for {service}"})
 
 
 @auth.command(name="status")
 def status_cmd() -> None:
     """Show credential status for all services."""
     creds = load_credentials()
-    if not creds:
-        click.echo("No credentials stored")
-        return
-
+    services = {}
     for service, fields in creds.items():
         if not isinstance(fields, dict):
             continue
-        field_names = list(fields.keys())
+        info: dict[str, Any] = {"fields": list(fields.keys())}
         expires_at = fields.get("expires_at")
-        status = ""
         if expires_at:
             try:
                 expiry = datetime.fromisoformat(expires_at)
-                if datetime.now(expiry.tzinfo) > expiry:
-                    status = " (expired)"
-                else:
-                    status = f" (expires {expires_at})"
+                info["expires_at"] = expires_at
+                info["expired"] = datetime.now(expiry.tzinfo) > expiry
             except (ValueError, TypeError):
                 pass
-        click.echo(f"{service}: {', '.join(field_names)}{status}")
+        services[service] = info
+    _output(services)
 
 
 def _lookup_provider(service: str) -> str | None:

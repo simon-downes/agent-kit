@@ -27,8 +27,7 @@ def load_credentials() -> dict:
         with CREDENTIALS_PATH.open() as f:
             return yaml.safe_load(f) or {}
     except yaml.YAMLError as e:
-        print(f"Error: invalid YAML in {CREDENTIALS_PATH}: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise yaml.YAMLError(f"invalid YAML in {CREDENTIALS_PATH}: {e}") from e
 
 
 def save_credentials(data: dict) -> None:

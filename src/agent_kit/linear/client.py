@@ -1,6 +1,5 @@
 """Linear GraphQL API client."""
 
-import sys
 from typing import Any
 
 import httpx
@@ -26,8 +25,14 @@ class LinearClient:
         resp = self._client.post("", json=payload)
 
         if resp.status_code == 401:
-            print("Error: Linear authentication failed (invalid API key)", file=sys.stderr)
-            sys.exit(2)
+            resp.raise_for_status()
+
+        if resp.status_code == 429:
+            raise httpx.HTTPStatusError(
+                "Linear API rate limit exceeded, try again later",
+                request=resp.request,
+                response=resp,
+            )
 
         body = resp.json()
 
@@ -91,8 +96,7 @@ def get_team(client: LinearClient, id_or_key: str) -> dict[str, Any]:
             data = client.query(TEAM_QUERY, {"id": t["id"]})
             return data["team"]
 
-    print(f"Error: team '{id_or_key}' not found", file=sys.stderr)
-    sys.exit(1)
+    raise ValueError(f"team '{id_or_key}' not found")
 
 
 def get_projects(client: LinearClient, *, team_key: str | None = None) -> list[dict[str, Any]]:
@@ -199,8 +203,7 @@ def get_issue(client: LinearClient, identifier: str) -> dict[str, Any]:
     data = client.query(ISSUE_QUERY, {"id": identifier})
     issue = data.get("issue")
     if not issue:
-        print(f"Error: issue '{identifier}' not found", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"issue '{identifier}' not found")
     return _format_issue_detail(issue)
 
 
@@ -314,8 +317,7 @@ def get_comments(client: LinearClient, identifier: str) -> list[dict[str, Any]]:
     data = client.query(COMMENTS_QUERY, {"id": identifier})
     issue = data.get("issue")
     if not issue:
-        print(f"Error: issue '{identifier}' not found", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"issue '{identifier}' not found")
     return [
         {
             "author": c.get("user", {}).get("name"),
@@ -345,8 +347,7 @@ def upload_file(client: LinearClient, filepath: str) -> dict[str, Any]:
 
     path = Path(filepath)
     if not path.exists():
-        print(f"Error: file not found: {filepath}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(f"file not found: {filepath}")
 
     content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
     size = path.stat().st_size

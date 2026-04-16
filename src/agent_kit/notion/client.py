@@ -2,12 +2,9 @@
 
 import json
 import re
-import sys
 from typing import Any
 
 from mcp import ClientSession
-
-from agent_kit.config import Config, ScopeConfig
 
 NOTION_MCP_URL = "https://mcp.notion.com/mcp"
 
@@ -18,18 +15,20 @@ class ScopeError(Exception):
     """Raised when a resource is outside configured scope."""
 
 
-def require_read(config: Config) -> None:
-    """Exit if read operations are disabled."""
-    if not config.notion.read.enabled:
-        print("Error: Notion read operations are disabled in config", file=sys.stderr)
-        sys.exit(1)
+class ConfigError(Exception):
+    """Raised when a configuration check fails."""
 
 
-def require_write(config: Config) -> None:
-    """Exit if write operations are disabled."""
-    if not config.notion.write.enabled:
-        print("Error: Notion write operations are disabled in config", file=sys.stderr)
-        sys.exit(1)
+def require_read(config: dict) -> None:
+    """Raise ConfigError if read operations are disabled."""
+    if not config.get("notion", {}).get("read", {}).get("enabled", True):
+        raise ConfigError("Notion read operations are disabled in config")
+
+
+def require_write(config: dict) -> None:
+    """Raise ConfigError if write operations are disabled."""
+    if not config.get("notion", {}).get("write", {}).get("enabled", False):
+        raise ConfigError("Notion write operations are disabled in config")
 
 
 def _extract_ancestor_ids(text: str) -> list[str]:
@@ -37,27 +36,31 @@ def _extract_ancestor_ids(text: str) -> list[str]:
     return _ANCESTOR_RE.findall(text)
 
 
-def _in_scope(scope: ScopeConfig, resource_id: str, text: str) -> bool:
+def _in_scope(scope: dict, resource_id: str, text: str) -> bool:
     """Check if resource or any ancestor is in scope."""
-    if not scope.pages and not scope.databases:
+    pages = scope.get("pages", [])
+    databases = scope.get("databases", [])
+    if not pages and not databases:
         return True
-    if resource_id in scope.pages or resource_id in scope.databases:
+    if resource_id in pages or resource_id in databases:
         return True
     for ancestor_id in _extract_ancestor_ids(text):
-        if ancestor_id in scope.pages or ancestor_id in scope.databases:
+        if ancestor_id in pages or ancestor_id in databases:
             return True
     return False
 
 
-def check_read_scope(config: Config, resource_id: str, text: str) -> None:
+def check_read_scope(config: dict, resource_id: str, text: str) -> None:
     """Raise ScopeError if resource is not in read scope."""
-    if not _in_scope(config.notion.read.scope, resource_id, text):
+    scope = config.get("notion", {}).get("read", {}).get("scope", {})
+    if not _in_scope(scope, resource_id, text):
         raise ScopeError(f"{resource_id} is not in configured read scope")
 
 
-def check_write_scope(config: Config, resource_id: str, text: str) -> None:
+def check_write_scope(config: dict, resource_id: str, text: str) -> None:
     """Raise ScopeError if resource is not in write scope."""
-    if not _in_scope(config.notion.write.scope, resource_id, text):
+    scope = config.get("notion", {}).get("write", {}).get("scope", {})
+    if not _in_scope(scope, resource_id, text):
         raise ScopeError(f"{resource_id} is not in configured write scope")
 
 
@@ -190,7 +193,7 @@ async def query_database(
 
     view_url = _find_view_url(text, view_name)
     if not view_url:
-        available = _list_view_names(text)
+        available = list_view_names(text)
         msg = f"No view found for database {db_id}"
         if available:
             msg += f". Available views: {', '.join(available)}"
@@ -241,7 +244,7 @@ def _find_view_url(text: str, view_name: str | None) -> str | None:
     return None
 
 
-def _list_view_names(text: str) -> list[str]:
+def list_view_names(text: str) -> list[str]:
     """Extract available view names from database fetch response."""
     names = []
     view_pattern = re.compile(r'<view\s+url="[^"]*">\s*(\{.*?\})\s*</view>', re.DOTALL)

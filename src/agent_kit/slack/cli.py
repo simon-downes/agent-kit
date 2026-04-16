@@ -3,8 +3,10 @@
 import json
 import os
 import sys
+from typing import Any
 
 import click
+import httpx
 
 from agent_kit.slack.client import send_message, send_raw
 
@@ -18,6 +20,11 @@ def _get_webhook_url() -> str:
         print("Error: no Slack credentials — run 'ak auth set slack webhook_url'", file=sys.stderr)
         sys.exit(2)
     return url
+
+
+def _output(data: Any) -> None:
+    """Write JSON to stdout."""
+    print(json.dumps(data, indent=2))
 
 
 @click.group()
@@ -48,7 +55,15 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
         except json.JSONDecodeError as e:
             print(f"Error: invalid JSON: {e}", file=sys.stderr)
             sys.exit(1)
-        send_raw(url, payload)
+        try:
+            send_raw(url, payload)
+        except httpx.HTTPStatusError as e:
+            print(
+                f"Error: Slack returned {e.response.status_code}: {e.response.text}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _output({"ok": True})
         return
 
     # Read text from stdin if not provided as argument
@@ -72,4 +87,9 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
             k, v = f.split("=", 1)
             parsed_fields.append((k, v))
 
-    send_message(url, text, header=header, fields=parsed_fields)
+    try:
+        send_message(url, text, header=header, fields=parsed_fields)
+    except httpx.HTTPStatusError as e:
+        print(f"Error: Slack returned {e.response.status_code}: {e.response.text}", file=sys.stderr)
+        sys.exit(1)
+    _output({"ok": True})

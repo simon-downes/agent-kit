@@ -12,8 +12,8 @@ from agent_kit.config import load_config
 from agent_kit.mcp import mcp_session
 from agent_kit.notion.client import (
     NOTION_MCP_URL,
+    ConfigError,
     ScopeError,
-    _list_view_names,
     check_read_scope,
     check_write_scope,
     create_comment,
@@ -22,6 +22,7 @@ from agent_kit.notion.client import (
     fetch_comments,
     fetch_database,
     fetch_page,
+    list_view_names,
     query_database,
     require_read,
     require_write,
@@ -54,13 +55,13 @@ def _run(coro: Any) -> Any:
     """Bridge sync Click command to async MCP call."""
     try:
         return asyncio.run(coro)
-    except BaseException as e:
+    except Exception as e:
         # Unwrap nested ExceptionGroups (from anyio/MCP task groups)
         cause = e
-        while isinstance(cause, BaseExceptionGroup) and cause.exceptions:
+        while isinstance(cause, ExceptionGroup) and cause.exceptions:
             cause = cause.exceptions[0]
 
-        if isinstance(cause, ScopeError):
+        if isinstance(cause, (ScopeError, ConfigError)):
             print(f"Error: {cause}", file=sys.stderr)
             sys.exit(1)
 
@@ -171,7 +172,7 @@ def db(id_or_url: str, views: bool) -> None:
             text, result = await fetch_database(session, db_id)
             check_read_scope(config, db_id, text)
             if views:
-                return _list_view_names(text)
+                return list_view_names(text)
             return result
 
     _output(_run(_fetch()))

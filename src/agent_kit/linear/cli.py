@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 import click
+import httpx
 
 from agent_kit.linear.client import (
     LinearClient,
@@ -44,6 +45,21 @@ def _output(data: Any) -> None:
     print(json.dumps(data, indent=2))
 
 
+def _run(fn: Any) -> Any:
+    """Call fn, catch client exceptions and exit cleanly."""
+    try:
+        return fn()
+    except (ValueError, FileNotFoundError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 401:
+            print("Error: Linear authentication failed (invalid API key)", file=sys.stderr)
+            sys.exit(2)
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 @click.group()
 def linear() -> None:
     """Linear — issue tracking and project management."""
@@ -52,21 +68,21 @@ def linear() -> None:
 @linear.command()
 def teams() -> None:
     """List all teams."""
-    _output(get_teams(_get_client()))
+    _output(_run(lambda: get_teams(_get_client())))
 
 
 @linear.command()
 @click.argument("id_or_key")
 def team(id_or_key: str) -> None:
     """Get team details including workflow states."""
-    _output(get_team(_get_client(), id_or_key))
+    _output(_run(lambda: get_team(_get_client(), id_or_key)))
 
 
 @linear.command()
 @click.option("--team", "team_key", help="Filter by team key")
 def projects(team_key: str | None) -> None:
     """List projects."""
-    _output(get_projects(_get_client(), team_key=team_key))
+    _output(_run(lambda: get_projects(_get_client(), team_key=team_key)))
 
 
 def _resolve_filters(
@@ -108,14 +124,16 @@ def issues(
         sys.exit(1)
 
     _output(
-        get_issues(
-            client,
-            team_id=resolved["team_id"],
-            status_id=resolved.get("status_id"),
-            assignee_id=resolved.get("assignee_id"),
-            label_id=resolved.get("label_id"),
-            project_name=project_name,
-            limit=limit,
+        _run(
+            lambda: get_issues(
+                client,
+                team_id=resolved["team_id"],
+                status_id=resolved.get("status_id"),
+                assignee_id=resolved.get("assignee_id"),
+                label_id=resolved.get("label_id"),
+                project_name=project_name,
+                limit=limit,
+            )
         )
     )
 
@@ -124,7 +142,7 @@ def issues(
 @click.argument("identifier")
 def issue(identifier: str) -> None:
     """Get issue details by identifier (e.g. PLAT-123)."""
-    _output(get_issue(_get_client(), identifier))
+    _output(_run(lambda: get_issue(_get_client(), identifier)))
 
 
 @linear.command("create-issue")
@@ -160,15 +178,17 @@ def create_issue_cmd(
         sys.exit(1)
 
     _output(
-        create_issue(
-            client,
-            team_id=team_id,
-            title=title,
-            description=description,
-            state_id=state_id,
-            assignee_id=assignee_id,
-            priority=priority,
-            label_ids=label_ids,
+        _run(
+            lambda: create_issue(
+                client,
+                team_id=team_id,
+                title=title,
+                description=description,
+                state_id=state_id,
+                assignee_id=assignee_id,
+                priority=priority,
+                label_ids=label_ids,
+            )
         )
     )
 
@@ -199,7 +219,7 @@ def update_issue_cmd(
     # Need team context for name resolution
     team_key: str | None = None
     if status or assignee or labels:
-        detail = get_issue(client, identifier)
+        detail = _run(lambda: get_issue(client, identifier))
         team_key = detail.get("team")
         if not team_key:
             print("Error: could not determine team for issue", file=sys.stderr)
@@ -216,15 +236,17 @@ def update_issue_cmd(
         sys.exit(1)
 
     _output(
-        update_issue(
-            client,
-            identifier,
-            title=title,
-            description=description,
-            state_id=state_id,
-            assignee_id=assignee_id,
-            priority=priority,
-            label_ids=label_ids,
+        _run(
+            lambda: update_issue(
+                client,
+                identifier,
+                title=title,
+                description=description,
+                state_id=state_id,
+                assignee_id=assignee_id,
+                priority=priority,
+                label_ids=label_ids,
+            )
         )
     )
 
@@ -233,7 +255,7 @@ def update_issue_cmd(
 @click.argument("identifier")
 def comments(identifier: str) -> None:
     """List comments on an issue."""
-    _output(get_comments(_get_client(), identifier))
+    _output(_run(lambda: get_comments(_get_client(), identifier)))
 
 
 @linear.command("comment")
@@ -251,15 +273,11 @@ def comment_cmd(identifier: str, message: str | None) -> None:
         print("Error: empty comment message", file=sys.stderr)
         sys.exit(1)
 
-    _output(create_comment(_get_client(), identifier, body=message))
+    _output(_run(lambda: create_comment(_get_client(), identifier, body=message)))
 
 
 @linear.command()
 @click.argument("file_path", type=click.Path(exists=True))
 def upload(file_path: str) -> None:
     """Upload a file to Linear's storage."""
-    try:
-        _output(upload_file(_get_client(), file_path))
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+    _output(_run(lambda: upload_file(_get_client(), file_path)))

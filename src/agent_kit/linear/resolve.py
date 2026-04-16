@@ -1,7 +1,5 @@
 """Name → ID resolution for Linear entities."""
 
-from typing import Any
-
 from agent_kit.linear.client import LinearClient, get_team
 
 
@@ -45,9 +43,3 @@ def resolve_team_id(client: LinearClient, team_key: str) -> str:
     """Resolve a team key to its ID."""
     team = get_team(client, team_key)
     return team["id"]
-
-
-def get_team_for_issue(client: LinearClient, issue: dict[str, Any]) -> str:
-    """Extract team ID from an issue dict."""
-    team = issue.get("team", {})
-    return team.get("id", "")

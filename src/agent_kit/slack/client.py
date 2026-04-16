@@ -1,7 +1,5 @@
 """Slack webhook client."""
 
-import sys
-
 import httpx
 
 
@@ -15,7 +13,6 @@ def send_message(
     """Send a message to Slack via incoming webhook.
 
     Builds a Block Kit payload from the provided components.
-    Raises SystemExit on failure.
     """
     blocks: list[dict] = []
 
@@ -44,6 +41,4 @@ def send_raw(webhook_url: str, payload: dict) -> None:
 def _post(webhook_url: str, payload: dict) -> None:
     """POST a payload to a Slack webhook URL."""
     resp = httpx.post(webhook_url, json=payload)
-    if resp.status_code != 200:
-        print(f"Error: Slack returned {resp.status_code}: {resp.text}", file=sys.stderr)
-        sys.exit(1)
+    resp.raise_for_status()
