@@ -6,75 +6,88 @@ context directories, each an independent git repository.
 ## Configuration
 
 ```yaml
-brain_dir: ~/.archie/brain    # default
+brain:
+  dir: ~/.archie/brain          # default
+  contexts:
+    shared: null                # local-only (no remote repo)
+    work-acme: git@github.com:you/brain-work-acme.git
+    personal: git@github.com:you/brain-personal.git
 ```
 
-The brain directory contains one or more context directories (`shared/`, `work-acme/`,
-`personal/`, etc.). Each context has a standard set of entity directories and an
-`index.yaml` for structured lookups.
-
-See the [Archie brain documentation](../../docs/brain.md) for the full structure and
-conventions.
+Contexts with a repo URL are cloned on `ak brain init`. Contexts without a URL are
+created locally with `git init`.
 
 ## Commands
+
+### `ak brain init [context]`
+
+Initialise the brain or a specific context.
+
+Without arguments: creates the `_raw` pipeline directories and initialises/clones all
+configured contexts (plus `shared` if not configured).
+
+With a context name: initialises just that context — clones from config if a repo is
+specified, otherwise creates locally.
+
+```bash
+# Full brain init (first time setup or new device)
+ak brain init
+
+# Add a single new context
+ak brain init work-acme
+```
+
+Created contexts get the standard entity directories: `me/`, `contacts/`, `projects/`,
+`knowledge/`, `goals/`, `inbox/`, `outbox/`, `journal/`, `archive/`.
 
 ### `ak brain index [context]`
 
 Query the brain index. Without a context, lists all available contexts.
 
 ```bash
-# List contexts
 ak brain index
-
-# Show full index for a context
 ak brain index shared
-
-# Filter by entity type
 ak brain index work-acme --type projects
-
-# Lookup a specific entity
 ak brain index work-acme --slug acme-api
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--type TYPE` | Filter by entity type (contacts, projects, knowledge, etc.) |
+| `--type TYPE` | Filter by entity type |
 | `--slug SLUG` | Lookup a specific entity by slug |
 
-### `ak brain create-context <name>`
+### `ak brain project [name]`
 
-Create a new brain context with the standard directory structure and initialise a git
-repository.
+Get project config from the brain. Searches across all contexts for a matching
+project directory. Without a name, infers from the current working directory.
 
 ```bash
-ak brain create-context work-acme
-ak brain create-context personal
+ak brain project archie
+ak brain project              # infers from cwd
 ```
 
-Creates: `me/`, `contacts/`, `projects/`, `knowledge/`, `goals/`, `inbox/`, `outbox/`,
-`journal/`, `raw/`, `archive/`, `.gitignore` (ignores `raw/` and `brain.db`).
+Output includes the project's frontmatter plus `context` and `path`.
 
 ### `ak brain status [context]`
 
-Show brain status — git changes and unprocessed items in `raw/`. Without a context,
-shows status for all contexts.
+Show brain status. Without a context, shows overall status including the `_raw`
+pipeline and all contexts.
 
 ```bash
-# All contexts
 ak brain status
-
-# Specific context
-ak brain status work-acme
+ak brain status shared
 ```
 
-Output includes:
-- `context` — context name
-- `changes` — list of uncommitted changes (git porcelain format)
-- `raw` — list of unprocessed files in `raw/`
+Overall status includes:
+- `raw.inbox` — items waiting to be processed
+- `raw.processing` — items currently being processed
+- `raw.completed` — processed items (can be cleaned up)
+- `contexts` — git status per context
 
 ### `ak brain validate [context]`
 
-Validate brain structure and index integrity. Without a context, validates all contexts.
+Validate brain structure and index integrity. Without a context, validates all
+contexts and checks git origins against config.
 
 ```bash
 ak brain validate
@@ -83,10 +96,29 @@ ak brain validate shared
 
 Checks:
 - Standard entity directories exist
-- `index.yaml` is valid YAML
-- Index entries have required fields (`name`, `path`)
-- Index paths point to existing files/directories
+- `index.yaml` is valid YAML with correct structure
+- Index entries have required fields and point to existing paths
 - Entities on disk are represented in the index
+- Git remote origins match configured repos
 
-Exits with code 1 if any errors are found. Findings are JSON with `level` (error,
-warning, info), `message`, and `context`.
+Exits with code 1 if any errors are found.
+
+## Raw Pipeline
+
+The `_raw` directory sits at the brain root (not inside any context) and provides a
+simple processing pipeline:
+
+```
+~/.archie/brain/
+├── _raw/
+│   ├── inbox/          # drop content here for processing
+│   ├── processing/     # items being worked on
+│   └── completed/      # done, available for review
+├── shared/
+├── work-acme/
+└── ...
+```
+
+Content is dropped into `inbox/`. The ingestion process moves items to `processing/`
+while working, then to `completed/` when done. The LLM determines which context(s)
+to update based on the content.
