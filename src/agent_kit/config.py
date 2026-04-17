@@ -9,7 +9,10 @@ CONFIG_PATH = Path("~/.agent-kit/config.yaml").expanduser()
 
 DEFAULT_CONFIG = {
     "project_dir": "~/dev",
-    "brain_dir": "~/.archie/brain",
+    "brain": {
+        "dir": "~/.archie/brain",
+        "contexts": {},
+    },
     "auth": {
         "notion": {"type": "oauth"},
         "linear": {"type": "static", "fields": ["token"]},

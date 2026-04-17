@@ -14,26 +14,37 @@ ENTITY_DIRS = [
     "inbox",
     "outbox",
     "journal",
-    "raw",
     "archive",
 ]
 
+RAW_DIRS = ["inbox", "processing", "completed"]
+
 GITIGNORE_CONTENT = """\
-raw/
 brain.db
 """
 
 
 def resolve_brain_dir(config: dict) -> Path:
     """Resolve brain directory from config."""
-    return Path(config.get("brain_dir", "~/.archie/brain")).expanduser()
+    brain = config.get("brain", {})
+    return Path(brain.get("dir", "~/.archie/brain")).expanduser()
+
+
+def configured_contexts(config: dict) -> dict[str, str | None]:
+    """Return configured contexts as {name: repo_url_or_none}."""
+    brain = config.get("brain", {})
+    return brain.get("contexts", {})
 
 
 def list_contexts(brain_dir: Path) -> list[str]:
     """List context directories in the brain."""
     if not brain_dir.exists():
         return []
-    return sorted(d.name for d in brain_dir.iterdir() if d.is_dir() and not d.name.startswith("."))
+    return sorted(
+        d.name
+        for d in brain_dir.iterdir()
+        if d.is_dir() and not d.name.startswith("_") and not d.name.startswith(".")
+    )
 
 
 def validate_name(name: str) -> None:
@@ -42,25 +53,69 @@ def validate_name(name: str) -> None:
         raise ValueError(f"invalid context name: {name!r}")
 
 
-def create_context(brain_dir: Path, name: str) -> Path:
-    """Create a brain context with standard directories and git init."""
+def init_brain(brain_dir: Path, config: dict) -> list[str]:
+    """Initialise the brain directory structure.
+
+    Creates _raw pipeline dirs and initialises/clones all configured contexts.
+    Returns list of actions taken.
+    """
+    actions = []
+
+    brain_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create _raw pipeline directories
+    raw_dir = brain_dir / "_raw"
+    for subdir in RAW_DIRS:
+        path = raw_dir / subdir
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+            actions.append(f"created {raw_dir.name}/{subdir}")
+
+    # Ensure shared context exists
+    contexts = configured_contexts(config)
+    if "shared" not in contexts:
+        contexts["shared"] = None
+
+    for name, repo in contexts.items():
+        result = init_context(brain_dir, name, repo)
+        if result:
+            actions.append(result)
+
+    return actions
+
+
+def init_context(brain_dir: Path, name: str, repo: str | None = None) -> str | None:
+    """Initialise a single context — clone from repo or create locally.
+
+    Returns a description of the action taken, or None if already exists.
+    """
     validate_name(name)
     context = brain_dir / name
-    if context.exists():
-        raise ValueError(f"context '{name}' already exists")
 
+    if context.exists():
+        return None
+
+    if repo:
+        result = subprocess.run(
+            ["git", "clone", repo, str(context)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise ValueError(f"git clone failed for {name}: {result.stderr.strip()}")
+        return f"cloned {name} from {repo}"
+
+    # Create locally
     for subdir in ENTITY_DIRS:
         (context / subdir).mkdir(parents=True, exist_ok=True)
 
-    # gitignore for raw/ and brain.db
     (context / ".gitignore").write_text(GITIGNORE_CONTENT)
 
-    # git init
     result = subprocess.run(["git", "init"], cwd=context, capture_output=True, text=True)
     if result.returncode != 0:
-        raise ValueError(f"git init failed: {result.stderr.strip()}")
+        raise ValueError(f"git init failed for {name}: {result.stderr.strip()}")
 
-    return context
+    return f"created {name}"
 
 
 def load_index(context_path: Path) -> dict:
@@ -83,7 +138,6 @@ def query_index(
 ) -> dict:
     """Query the index. Filter by type and/or slug."""
     if slug:
-        # Search all types for the slug
         for etype, entries in index.items():
             if isinstance(entries, dict) and slug in entries:
                 return {etype: {slug: entries[slug]}}
@@ -97,10 +151,9 @@ def query_index(
 
 
 def context_status(context_path: Path) -> dict:
-    """Get status for a context: git changes and unprocessed raw items."""
+    """Get status for a context: git changes."""
     result: dict = {"context": context_path.name}
 
-    # Git status
     git_result = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=context_path,
@@ -115,13 +168,26 @@ def context_status(context_path: Path) -> dict:
         result["changes"] = []
         result["git_error"] = "not a git repository"
 
-    # Raw items
-    raw_dir = context_path / "raw"
-    if raw_dir.exists():
-        raw_items = [f.name for f in raw_dir.iterdir() if not f.name.startswith(".")]
-        result["raw"] = sorted(raw_items)
-    else:
-        result["raw"] = []
+    return result
+
+
+def brain_status(brain_dir: Path) -> dict:
+    """Get overall brain status including _raw pipeline and all contexts."""
+    result: dict = {"dir": str(brain_dir), "contexts": [], "raw": {}}
+
+    # Raw pipeline status
+    raw_dir = brain_dir / "_raw"
+    for subdir in RAW_DIRS:
+        path = raw_dir / subdir
+        if path.exists():
+            items = sorted(f.name for f in path.iterdir() if not f.name.startswith("."))
+            result["raw"][subdir] = items
+        else:
+            result["raw"][subdir] = []
+
+    # Context statuses
+    for name in list_contexts(brain_dir):
+        result["contexts"].append(context_status(brain_dir / name))
 
     return result
 
@@ -216,7 +282,7 @@ def validate_context(context_path: Path) -> list[dict]:
                     }
                 )
 
-    # Check for entities not in the index (only types that should be indexed)
+    # Check for entities not in the index
     indexed_paths = set()
     for entries in index.values():
         if isinstance(entries, dict):
@@ -244,12 +310,55 @@ def validate_context(context_path: Path) -> list[dict]:
     return findings
 
 
-def find_project(brain_dir: Path, name: str) -> dict | None:
-    """Find a project by directory name across all contexts.
+def validate_origins(brain_dir: Path, config: dict) -> list[dict]:
+    """Check context git origins match configured repos."""
+    findings: list[dict] = []
+    contexts = configured_contexts(config)
 
-    Scans */projects/<name>/README.md, parses YAML frontmatter, returns
-    the frontmatter dict with 'context' and 'path' added. Returns None if not found.
-    """
+    for name, expected_repo in contexts.items():
+        if not expected_repo:
+            continue
+        context_path = brain_dir / name
+        if not context_path.exists():
+            findings.append(
+                {
+                    "level": "error",
+                    "message": f"configured context '{name}' not found — run 'ak brain init'",
+                    "context": name,
+                }
+            )
+            continue
+
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=context_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            findings.append(
+                {
+                    "level": "warning",
+                    "message": "no git remote origin",
+                    "context": name,
+                }
+            )
+        elif result.stdout.strip() != expected_repo:
+            actual = result.stdout.strip()
+            findings.append(
+                {
+                    "level": "warning",
+                    "message": f"origin mismatch: expected {expected_repo}, got {actual}",
+                    "context": name,
+                }
+            )
+
+    return findings
+
+
+def find_project(brain_dir: Path, name: str) -> dict | None:
+    """Find a project by directory name across all contexts."""
     for context in list_contexts(brain_dir):
         readme = brain_dir / context / "projects" / name / "README.md"
         if readme.exists():
