@@ -242,3 +242,31 @@ def validate_context(context_path: Path) -> list[dict]:
                 )
 
     return findings
+
+
+def find_project(brain_dir: Path, name: str) -> dict | None:
+    """Find a project by directory name across all contexts.
+
+    Scans */projects/<name>/README.md, parses YAML frontmatter, returns
+    the frontmatter dict with 'context' and 'path' added. Returns None if not found.
+    """
+    for context in list_contexts(brain_dir):
+        readme = brain_dir / context / "projects" / name / "README.md"
+        if readme.exists():
+            frontmatter = _parse_frontmatter(readme)
+            frontmatter["context"] = context
+            frontmatter["path"] = f"{context}/projects/{name}/"
+            return frontmatter
+    return None
+
+
+def _parse_frontmatter(path: Path) -> dict:
+    """Extract YAML frontmatter from a markdown file."""
+    text = path.read_text()
+    if not text.startswith("---\n"):
+        return {}
+    end = text.index("\n---\n", 4)
+    try:
+        return yaml.safe_load(text[4:end]) or {}
+    except yaml.YAMLError:
+        return {}

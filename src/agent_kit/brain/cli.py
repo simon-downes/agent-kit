@@ -7,6 +7,7 @@ import click
 from agent_kit.brain.client import (
     context_status,
     create_context,
+    find_project,
     list_contexts,
     load_index,
     query_index,
@@ -52,6 +53,28 @@ def index(context: str | None, entity_type: str | None, slug: str | None) -> Non
     context_path = _resolve_context(brain_dir, context)
     idx = load_index(context_path)
     output(query_index(idx, entity_type=entity_type, slug=slug))
+
+
+@brain.command()
+@click.argument("name", required=False)
+@handle_errors
+def project(name: str | None) -> None:
+    """Get project config from the brain.
+
+    Resolves by project directory name. Without arguments, infers from
+    current working directory. Searches across all contexts.
+    """
+    if not name:
+        from agent_kit.project import resolve_project_name
+
+        name, _ = resolve_project_name(load_config())
+
+    config = load_config()
+    brain_dir = resolve_brain_dir(config)
+    result = find_project(brain_dir, name)
+    if not result:
+        raise ValueError(f"project '{name}' not found in brain")
+    output(result)
 
 
 @brain.command("create-context")
