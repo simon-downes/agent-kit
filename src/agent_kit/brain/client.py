@@ -292,7 +292,7 @@ def validate_context(context_path: Path) -> list[dict]:
                 if isinstance(entry, dict) and "path" in entry:
                     indexed_paths.add(entry["path"])
 
-    for entity_type in ["contacts", "projects", "knowledge", "goals"]:
+    for entity_type in INDEXABLE_DIRS:
         entity_dir = context_path / entity_type
         if not entity_dir.exists():
             continue
@@ -377,12 +377,14 @@ def reindex_context(context_path: Path) -> dict:
         entries: dict[str, dict] = {}
         existing_type = existing.get(entity_type, {})
 
-        for item in sorted(entity_dir.iterdir()):
+        for item in _indexable_items(entity_dir):
             if item.name.startswith("."):
                 continue
 
             slug = item.stem if item.is_file() else item.name
-            rel_path = f"{entity_type}/{item.name}" + ("/" if item.is_dir() else "")
+            rel_path = str(item.relative_to(context_path))
+            if item.is_dir():
+                rel_path += "/"
 
             # Preserve existing curated entry if path still matches
             if slug in existing_type and existing_type[slug].get("path") == rel_path:
@@ -416,20 +418,32 @@ def commit_context(context_path: Path, message: str) -> str | None:
     if not status.stdout.strip():
         return None
 
-    subprocess.run(["git", "add", "-A"], cwd=context_path, check=True)
-    subprocess.run(
+    result = subprocess.run(
+        ["git", "add", "-A"],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"git add failed in {context_path.name}: {result.stderr.strip()}")
+
+    result = subprocess.run(
         ["git", "commit", "-m", message],
         cwd=context_path,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    if result.returncode != 0:
+        raise ValueError(f"git commit failed in {context_path.name}: {result.stderr.strip()}")
+
     result = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
         cwd=context_path,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
     return result.stdout.strip()
 
@@ -454,7 +468,10 @@ def _extract_metadata(path: Path) -> dict:
             return {}
 
     if path.suffix == ".md":
-        return _parse_frontmatter(path)
+        try:
+            return _parse_frontmatter(path)
+        except ValueError:
+            return {}
 
     return {}
 
@@ -462,6 +479,31 @@ def _extract_metadata(path: Path) -> dict:
 def _slug_to_name(slug: str) -> str:
     """Convert a slug to a human-readable name."""
     return slug.replace("-", " ").replace("_", " ").title()
+
+
+def _indexable_items(entity_dir: Path) -> list[Path]:
+    """List indexable items in an entity directory.
+
+    Top-level files and project-style directories (containing README.md) are
+    returned directly. Subdirectories without README.md are walked to find
+    individual files (e.g. knowledge/aws/aurora-failover.md).
+    """
+    items: list[Path] = []
+    for item in sorted(entity_dir.iterdir()):
+        if item.name.startswith("."):
+            continue
+        if item.is_file():
+            items.append(item)
+        elif item.is_dir():
+            if (item / "README.md").exists():
+                # Project-style directory — index as a single entity
+                items.append(item)
+            else:
+                # Subdirectory — walk for individual files
+                for child in sorted(item.rglob("*")):
+                    if child.is_file() and not child.name.startswith("."):
+                        items.append(child)
+    return items
 
 
 def find_project(brain_dir: Path, name: str) -> dict | None:
