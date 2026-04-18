@@ -148,5 +148,5 @@ ak brain commit shared -m "brain: add aurora knowledge" \
 ak brain commit work-acme -m "brain: ingest meeting notes"
 ```
 
-Both `reindex` and `commit` acquire a per-context file lock internally to prevent
-concurrent corruption.
+`reindex` acquires a per-context file lock internally to prevent concurrent
+corruption of `index.yaml`.

@@ -427,49 +427,47 @@ def commit_context(context_path: Path, message: str, paths: list[str] | None = N
     """Stage and commit in a context. Returns commit hash or None.
 
     If paths is provided, only those files are staged. Otherwise stages all changes.
-    Acquires a per-context lock to prevent interleaved add/commit sequences.
     """
-    with _context_lock(context_path):
-        # Check for changes first
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=context_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if not status.stdout.strip():
-            return None
+    # Check for changes first
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if not status.stdout.strip():
+        return None
 
-        add_cmd = ["git", "add"] + (paths if paths else ["-A"])
-        result = subprocess.run(
-            add_cmd,
-            cwd=context_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise ValueError(f"git add failed in {context_path.name}: {result.stderr.strip()}")
+    add_cmd = ["git", "add"] + (paths if paths else ["-A"])
+    result = subprocess.run(
+        add_cmd,
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"git add failed in {context_path.name}: {result.stderr.strip()}")
 
-        result = subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=context_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise ValueError(f"git commit failed in {context_path.name}: {result.stderr.strip()}")
+    result = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ValueError(f"git commit failed in {context_path.name}: {result.stderr.strip()}")
 
-        result = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=context_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.stdout.strip()
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip()
 
 
 def _extract_metadata(path: Path) -> dict:
