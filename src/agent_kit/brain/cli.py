@@ -6,12 +6,14 @@ import click
 
 from agent_kit.brain.client import (
     brain_status,
+    commit_context,
     find_project,
     init_brain,
     init_context,
     list_contexts,
     load_index,
     query_index,
+    reindex_context,
     resolve_brain_dir,
     validate_context,
     validate_name,
@@ -89,6 +91,41 @@ def index(context: str | None, entity_type: str | None, slug: str | None) -> Non
     context_path = _resolve_context(brain_dir, context)
     idx = load_index(context_path)
     output(query_index(idx, entity_type=entity_type, slug=slug))
+
+
+@brain.command()
+@click.argument("context")
+@handle_errors
+def reindex(context: str) -> None:
+    """Rebuild index.yaml for a context from filesystem contents.
+
+    Scans entity directories, extracts metadata from frontmatter, and merges
+    with existing index entries (preserving curated summaries).
+    """
+    config = load_config()
+    brain_dir = resolve_brain_dir(config)
+    context_path = _resolve_context(brain_dir, context)
+    idx = reindex_context(context_path)
+    output(idx)
+
+
+@brain.command()
+@click.argument("context")
+@click.option("-m", "--message", required=True, help="Commit message")
+@handle_errors
+def commit(context: str, message: str) -> None:
+    """Stage and commit all changes in a context.
+
+    Runs git add -A and git commit. If nothing to commit, reports cleanly.
+    """
+    config = load_config()
+    brain_dir = resolve_brain_dir(config)
+    context_path = _resolve_context(brain_dir, context)
+    sha = commit_context(context_path, message)
+    if sha:
+        print(f"{context}: {sha}")
+    else:
+        print(f"{context}: nothing to commit")
 
 
 @brain.command()

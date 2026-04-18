@@ -17,6 +17,8 @@ ENTITY_DIRS = [
     "archive",
 ]
 
+INDEXABLE_DIRS = ["contacts", "projects", "knowledge", "goals"]
+
 RAW_DIRS = ["inbox", "processing", "completed"]
 
 GITIGNORE_CONTENT = """\
@@ -355,6 +357,111 @@ def validate_origins(brain_dir: Path, config: dict) -> list[dict]:
             )
 
     return findings
+
+
+def reindex_context(context_path: Path) -> dict:
+    """Rebuild index.yaml for a context from filesystem contents.
+
+    Scans indexable entity directories, extracts metadata from frontmatter,
+    and merges with existing index (preserving curated entries for paths that
+    still exist).
+    """
+    existing = load_index(context_path)
+    index: dict[str, dict] = {}
+
+    for entity_type in INDEXABLE_DIRS:
+        entity_dir = context_path / entity_type
+        if not entity_dir.exists():
+            continue
+
+        entries: dict[str, dict] = {}
+        existing_type = existing.get(entity_type, {})
+
+        for item in sorted(entity_dir.iterdir()):
+            if item.name.startswith("."):
+                continue
+
+            slug = item.stem if item.is_file() else item.name
+            rel_path = f"{entity_type}/{item.name}" + ("/" if item.is_dir() else "")
+
+            # Preserve existing curated entry if path still matches
+            if slug in existing_type and existing_type[slug].get("path") == rel_path:
+                entries[slug] = existing_type[slug]
+                continue
+
+            meta = _extract_metadata(item)
+            entry: dict = {"name": meta.get("name", _slug_to_name(slug)), "path": rel_path}
+            if meta.get("summary"):
+                entry["summary"] = meta["summary"]
+            entries[slug] = entry
+
+        if entries:
+            index[entity_type] = entries
+
+    index_path = context_path / "index.yaml"
+    index_path.write_text(yaml.dump(index, default_flow_style=False, sort_keys=False))
+    return index
+
+
+def commit_context(context_path: Path, message: str) -> str | None:
+    """Stage all changes and commit in a context. Returns commit hash or None."""
+    # Check for changes first
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if not status.stdout.strip():
+        return None
+
+    subprocess.run(["git", "add", "-A"], cwd=context_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=context_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _extract_metadata(path: Path) -> dict:
+    """Extract name and summary from a file or directory.
+
+    Handles: markdown with YAML frontmatter, standalone YAML files,
+    and directories with README.md.
+    """
+    if path.is_dir():
+        readme = path / "README.md"
+        if readme.exists():
+            return _parse_frontmatter(readme)
+        return {}
+
+    if path.suffix in (".yaml", ".yml"):
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+            return data if isinstance(data, dict) else {}
+        except yaml.YAMLError:
+            return {}
+
+    if path.suffix == ".md":
+        return _parse_frontmatter(path)
+
+    return {}
+
+
+def _slug_to_name(slug: str) -> str:
+    """Convert a slug to a human-readable name."""
+    return slug.replace("-", " ").replace("_", " ").title()
 
 
 def find_project(brain_dir: Path, name: str) -> dict | None:
