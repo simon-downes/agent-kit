@@ -134,12 +134,19 @@ ak brain reindex shared
 ak brain reindex work-acme
 ```
 
-### `ak brain commit <context> -m <message>`
+### `ak brain commit <context> -m <message> [--paths <file> ...]`
 
-Stage all changes and commit in a context. Runs `git add -A` followed by
-`git commit`. If nothing to commit, reports cleanly without error.
+Stage and commit changes in a context. Use `--paths` to stage specific files only
+(repeatable). Without `--paths`, stages all changes with `git add -A`.
+
+Prefer `--paths` when multiple agents may write concurrently — prevents one agent's
+commit from including another agent's uncommitted files.
 
 ```bash
-ak brain commit shared -m "brain: add aurora knowledge"
+ak brain commit shared -m "brain: add aurora knowledge" \
+  --paths knowledge/aurora-failover.md --paths index.yaml
 ak brain commit work-acme -m "brain: ingest meeting notes"
 ```
+
+Both `reindex` and `commit` acquire a per-context file lock internally to prevent
+concurrent corruption.

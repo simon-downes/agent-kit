@@ -112,16 +112,18 @@ def reindex(context: str) -> None:
 @brain.command()
 @click.argument("context")
 @click.option("-m", "--message", required=True, help="Commit message")
+@click.option("--paths", multiple=True, help="Specific files to stage (repeatable).")
 @handle_errors
-def commit(context: str, message: str) -> None:
-    """Stage and commit all changes in a context.
+def commit(context: str, message: str, paths: tuple[str, ...]) -> None:
+    """Stage and commit changes in a context.
 
-    Runs git add -A and git commit. If nothing to commit, reports cleanly.
+    By default stages all changes. Use --paths to stage specific files only,
+    preventing one agent's commit from sweeping up another agent's work.
     """
     config = load_config()
     brain_dir = resolve_brain_dir(config)
     context_path = _resolve_context(brain_dir, context)
-    sha = commit_context(context_path, message)
+    sha = commit_context(context_path, message, list(paths) if paths else None)
     if sha:
         print(f"{context}: {sha}")
     else:
