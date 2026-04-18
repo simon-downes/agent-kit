@@ -121,3 +121,25 @@ and git origins against config.
 ```bash
 ak brain validate
 ```
+
+### `ak brain reindex <context>`
+
+Rebuild `index.yaml` for a context from filesystem contents. Scans indexable entity
+directories (`contacts`, `projects`, `knowledge`, `goals`), extracts metadata from
+frontmatter, and merges with existing index. Existing curated entries whose paths
+still exist on disk are preserved.
+
+```bash
+ak brain reindex shared
+ak brain reindex work-acme
+```
+
+### `ak brain commit <context> -m <message>`
+
+Stage all changes and commit in a context. Runs `git add -A` followed by
+`git commit`. If nothing to commit, reports cleanly without error.
+
+```bash
+ak brain commit shared -m "brain: add aurora knowledge"
+ak brain commit work-acme -m "brain: ingest meeting notes"
+```
