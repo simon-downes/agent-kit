@@ -17,6 +17,7 @@ from agent_kit.jira.client import (
     get_projects,
     get_statuses,
     search_issues,
+    transition_issue,
     update_issue,
 )
 from agent_kit.jira.resolve import resolve_assignee, resolve_transition
@@ -200,8 +201,6 @@ def transition(key: str, status: str) -> None:
     """Transition an issue to a new status."""
     client = _get_client()
     transition_id = resolve_transition(client, key, status)
-    from agent_kit.jira.client import transition_issue
-
     output(transition_issue(client, key, transition_id=transition_id))
 
 

@@ -96,8 +96,14 @@ def _extract_blocks(nodes: list[dict[str, Any]], depth: int = 0) -> str:
         elif ntype in ("bulletList", "orderedList"):
             for i, item in enumerate(content):
                 prefix = "- " if ntype == "bulletList" else f"{i + 1}. "
-                item_text = _extract_inline(item.get("content", [{}])[0].get("content", []))
-                parts.append(prefix + item_text)
+                children = item.get("content", [])
+                if children:
+                    item_text = _extract_blocks(children, depth + 1)
+                    # Indent continuation lines for multi-paragraph items
+                    lines = item_text.splitlines()
+                    parts.append(prefix + "\n".join(lines))
+                else:
+                    parts.append(prefix)
         elif ntype == "codeBlock":
             parts.append("```\n" + _extract_inline(content) + "\n```")
         elif ntype == "blockquote":
@@ -181,6 +187,11 @@ def get_statuses(client: JiraClient, project_key: str) -> list[dict[str, Any]]:
 # --- Issue queries ---
 
 
+def _jql_escape(value: str) -> str:
+    """Escape a value for use in a JQL quoted string."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
 def search_issues(
     client: JiraClient,
     *,
@@ -195,15 +206,15 @@ def search_issues(
     if jql is None:
         clauses: list[str] = []
         if project:
-            clauses.append(f'project = "{project}"')
+            clauses.append(f'project = "{_jql_escape(project)}"')
         if status:
-            clauses.append(f'status = "{status}"')
+            clauses.append(f'status = "{_jql_escape(status)}"')
         if assignee:
-            clauses.append(f'assignee = "{assignee}"')
+            clauses.append(f'assignee = "{_jql_escape(assignee)}"')
         if issue_type:
-            clauses.append(f'issuetype = "{issue_type}"')
+            clauses.append(f'issuetype = "{_jql_escape(issue_type)}"')
         if label:
-            clauses.append(f'labels = "{label}"')
+            clauses.append(f'labels = "{_jql_escape(label)}"')
         jql = " AND ".join(clauses) if clauses else "ORDER BY created DESC"
 
     fields = "summary,status,assignee,priority,issuetype,labels,created,updated"

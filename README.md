@@ -71,6 +71,11 @@ Communicates via the Notion MCP proxy. Supports read/write scoping.
 Issue tracking — list teams/projects, query issues, create/update issues, comments, file
 uploads. Communicates directly with Linear's GraphQL API.
 
+### [Jira](docs/jira.md)
+
+Issue tracking — list projects, query issues via JQL, create/update/transition issues,
+comments, file attachments. Communicates with Jira Cloud REST API v3 using scoped API tokens.
+
 ### [Slack](docs/slack.md)
 
 Send messages via incoming webhooks. Supports text, headers, fields, and raw Block Kit JSON.
@@ -94,5 +99,6 @@ ak linear issues --team PLAT | jq '.[].identifier'
 - [Brain](docs/brain.md) — second brain management
 - [Notion](docs/notion.md) — Notion integration
 - [Linear](docs/linear.md) — Linear integration
+- [Jira](docs/jira.md) — Jira Cloud integration
 - [Slack](docs/slack.md) — Slack integration
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and conventions

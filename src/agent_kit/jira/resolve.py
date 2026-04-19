@@ -1,6 +1,6 @@
 """Name → ID resolution for Jira entities."""
 
-from agent_kit.jira.client import JiraClient, get_statuses, get_transitions, search_users
+from agent_kit.jira.client import JiraClient, get_transitions, search_users
 
 
 def resolve_assignee(client: JiraClient, name: str) -> str:
@@ -25,16 +25,3 @@ def resolve_transition(client: JiraClient, key: str, status_name: str) -> str:
             return t["id"]
     available = [t["name"] for t in transitions]
     raise ValueError(f"Transition '{status_name}' not available. Available: {', '.join(available)}")
-
-
-def resolve_status_name(client: JiraClient, project_key: str, name: str) -> str:
-    """Validate a status name exists for a project. Returns the canonical name."""
-    statuses = get_statuses(client, project_key)
-    name_lower = name.lower()
-    seen: set[str] = set()
-    for entry in statuses:
-        for s in entry["statuses"]:
-            if s["name"].lower() == name_lower:
-                return s["name"]
-            seen.add(s["name"])
-    raise ValueError(f"Status '{name}' not found. Available: {', '.join(sorted(seen))}")

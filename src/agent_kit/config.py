@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
             "fields": ["access_key_id", "secret_access_key", "session_token"],
         },
         "scalr": {"type": "static", "fields": ["token", "hostname"]},
+        "jira": {"type": "static", "fields": ["email", "token", "cloud_id"]},
     },
     "notion": {
         "read": {"enabled": True, "scope": {"pages": [], "databases": []}},
