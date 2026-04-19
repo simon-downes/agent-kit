@@ -22,8 +22,6 @@ selective cloning per device.
 | `projects/` | Active work                                |
 | `knowledge/`| Concepts, topics, reference material       |
 | `goals/`    | Priorities, OKRs, roadmap items            |
-| `inbox/`    | Actionable items awaiting review           |
-| `outbox/`   | Draft messages awaiting send               |
 | `journal/`  | Daily/weekly logs                          |
 | `archive/`  | Retired entities                           |
 
@@ -36,6 +34,11 @@ in the brain without reading every file.
 
 **Raw pipeline** — `_raw/` at the brain root (outside any context) with three stages:
 `inbox/` (to be processed), `processing/` (in progress), `completed/` (done, reviewable).
+
+**Global operational directories** — device-local directories at the brain root:
+- `_inbox/` — items for the user to read (research output, reports)
+- `_outbox/` — items for the user to act on (draft messages, action items)
+- `_memory/` — conversation summaries, one file per project per day
 
 ## Configuration
 

@@ -13,8 +13,6 @@ ENTITY_DIRS = [
     "projects",
     "knowledge",
     "goals",
-    "inbox",
-    "outbox",
     "journal",
     "archive",
 ]
@@ -88,6 +86,13 @@ def init_brain(brain_dir: Path, config: dict) -> list[str]:
         if not path.exists():
             path.mkdir(parents=True, exist_ok=True)
             actions.append(f"created {raw_dir.name}/{subdir}")
+
+    # Create global operational directories
+    for dirname in ("_inbox", "_outbox", "_memory"):
+        path = brain_dir / dirname
+        if not path.exists():
+            path.mkdir(parents=True, exist_ok=True)
+            actions.append(f"created {dirname}")
 
     # Ensure shared context exists
     contexts = configured_contexts(config)
