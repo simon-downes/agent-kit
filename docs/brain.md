@@ -87,6 +87,23 @@ ak brain init                 # full setup
 ak brain init work-acme       # single context
 ```
 
+### `ak brain search <query>`
+
+Search across index metadata (name, tags, summary), file content, and conversation
+memory. Returns ranked results — name matches first, then tags, summary, content,
+and memory. Within the same rank, sorted by most recently modified.
+
+```bash
+ak brain search "aurora"                    # search everything
+ak brain search "aurora" --context shared   # limit to one context
+ak brain search "aurora" --limit 5          # fewer results
+```
+
+| Option | Description |
+|--------|-------------|
+| `--context NAME` | Limit search to a specific context |
+| `--limit N` | Maximum results (default: 20) |
+
 ### `ak brain index [context]`
 
 Query the brain index. Without a context, lists available contexts.

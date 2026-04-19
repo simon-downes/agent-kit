@@ -418,6 +418,8 @@ def reindex_context(context_path: Path) -> dict:
                 entry: dict = {"name": meta.get("name", _slug_to_name(slug)), "path": rel_path}
                 if meta.get("summary"):
                     entry["summary"] = meta["summary"]
+                if meta.get("tags"):
+                    entry["tags"] = meta["tags"]
                 entries[slug] = entry
 
             if entries:
@@ -531,6 +533,195 @@ def _indexable_items(entity_dir: Path) -> list[Path]:
                     if child.is_file() and not child.name.startswith("."):
                         items.append(child)
     return items
+
+
+def search_brain(
+    brain_dir: Path,
+    query: str,
+    *,
+    context: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Search the brain across index metadata, file content, and memory.
+
+    Returns results ranked by match quality:
+      1 = name match, 2 = tag match, 3 = summary match,
+      4 = content match, 5 = memory match.
+    Within the same weight, sorted by most recently modified.
+    """
+    query_lower = query.lower()
+    terms = query_lower.split()
+    seen_paths: set[str] = set()
+    results: list[dict] = []
+
+    # Determine which contexts to search
+    contexts = [context] if context else list_contexts(brain_dir)
+
+    # Phase 1: Index search (weights 1-3)
+    for ctx in contexts:
+        ctx_path = brain_dir / ctx
+        index = load_index(ctx_path)
+        for entity_type, entries in index.items():
+            if not isinstance(entries, dict):
+                continue
+            for slug, entry in entries.items():
+                if not isinstance(entry, dict):
+                    continue
+
+                rel_path = f"{ctx}/{entry.get('path', '')}"
+                name = entry.get("name", "")
+                summary = entry.get("summary", "")
+                tags = entry.get("tags", [])
+                if not isinstance(tags, list):
+                    tags = []
+
+                weight = _match_weight(terms, name, tags, summary)
+                if weight is None:
+                    continue
+
+                mtime = _file_mtime(ctx_path / entry.get("path", ""))
+                results.append(
+                    {
+                        "context": ctx,
+                        "type": entity_type,
+                        "slug": slug,
+                        "name": name,
+                        "summary": summary,
+                        "tags": tags,
+                        "path": rel_path,
+                        "match": ["", "name", "tag", "summary"][weight],
+                        "weight": weight,
+                        "modified": mtime,
+                    }
+                )
+                seen_paths.add(rel_path)
+
+    # Phase 2: Content search via rg (weight 4)
+    rg_paths = [str(brain_dir / ctx) for ctx in contexts]
+    content_hits = _rg_search(query, rg_paths, brain_dir)
+    for hit in content_hits:
+        if hit["path"] in seen_paths:
+            continue
+        seen_paths.add(hit["path"])
+        hit["weight"] = 4
+        hit["match"] = "content"
+        results.append(hit)
+
+    # Phase 3: Memory search (weight 5)
+    memory_dir = brain_dir / "_memory"
+    if memory_dir.exists():
+        memory_hits = _rg_search(query, [str(memory_dir)], brain_dir, context_lines=1)
+        for hit in memory_hits:
+            if hit["path"] in seen_paths:
+                continue
+            seen_paths.add(hit["path"])
+            hit["weight"] = 5
+            hit["match"] = "memory"
+            hit["context"] = "_memory"
+            hit["type"] = "memory"
+            results.append(hit)
+
+    results.sort(key=lambda r: (r["weight"], -(r.get("modified") or 0)))
+    return results[:limit]
+
+
+def _match_weight(terms: list[str], name: str, tags: list[str], summary: str) -> int | None:
+    """Return match weight (1-3) or None if no match."""
+    name_lower = name.lower()
+    tags_lower = [t.lower() for t in tags]
+    summary_lower = summary.lower()
+
+    if any(t in name_lower for t in terms):
+        return 1
+    if any(t in tags_lower for t in terms):
+        return 2
+    if any(t in summary_lower for t in terms):
+        return 3
+    return None
+
+
+def _file_mtime(path: Path) -> float:
+    """Get file modification time, handling dirs and missing files."""
+    try:
+        if path.is_dir():
+            readme = path / "README.md"
+            if readme.exists():
+                return readme.stat().st_mtime
+            return path.stat().st_mtime
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _rg_search(
+    query: str,
+    paths: list[str],
+    brain_dir: Path,
+    *,
+    context_lines: int = 0,
+) -> list[dict]:
+    """Run rg and return deduplicated file-level results."""
+    cmd = [
+        "rg",
+        "-i",
+        "-l",
+        "--glob",
+        "!.git",
+        "--glob",
+        "!_raw",
+        "--glob",
+        "!brain.db",
+        "--glob",
+        "!.brain.lock",
+        "-t",
+        "md",
+        "-t",
+        "yaml",
+        query,
+    ] + paths
+
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return []
+
+    hits: list[dict] = []
+    for line in result.stdout.strip().splitlines():
+        filepath = Path(line)
+        try:
+            rel = str(filepath.relative_to(brain_dir))
+        except ValueError:
+            rel = line
+        mtime = _file_mtime(filepath)
+
+        entry: dict = {
+            "path": rel,
+            "name": filepath.stem.replace("-", " ").replace("_", " ").title(),
+            "modified": mtime,
+        }
+
+        # Try to get an excerpt
+        if context_lines >= 0:
+            excerpt = _rg_excerpt(query, str(filepath))
+            if excerpt:
+                entry["excerpt"] = excerpt
+
+        hits.append(entry)
+
+    return hits
+
+
+def _rg_excerpt(query: str, filepath: str) -> str | None:
+    """Get a short excerpt around the first match in a file."""
+    result = subprocess.run(
+        ["rg", "-i", "-m", "1", "-C", "1", query, filepath],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    lines = result.stdout.strip().splitlines()
+    return " ".join(line.strip() for line in lines[:3] if line.strip())[:200]
 
 
 def find_project(brain_dir: Path, name: str) -> dict | None:

@@ -111,8 +111,8 @@ def get_projects(client: LinearClient, *, team_key: str | None = None) -> list[d
 # --- Issue queries ---
 
 ISSUES_QUERY = """
-query Issues($filter: IssueFilter, $first: Int) {
-  issues(filter: $filter, first: $first) {
+query Issues($filter: IssueFilter, $first: Int, $after: String) {
+  issues(filter: $filter, first: $first, after: $after) {
     nodes {
       id identifier title priority
       state { id name type }
@@ -121,6 +121,7 @@ query Issues($filter: IssueFilter, $first: Int) {
       project { id name }
       createdAt updatedAt
     }
+    pageInfo { hasNextPage endCursor }
   }
 }
 """
@@ -181,6 +182,10 @@ def get_issues(
     assignee_id: str | None = None,
     label_id: str | None = None,
     project_name: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
+    updated_after: str | None = None,
+    updated_before: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """List issues with server-side filtering."""
@@ -193,9 +198,29 @@ def get_issues(
         filt["labels"] = {"id": {"eq": label_id}}
     if project_name:
         filt["project"] = {"name": {"eqIgnoreCase": project_name}}
+    if created_after or created_before:
+        created: dict[str, Any] = {}
+        if created_after:
+            created["gte"] = created_after
+        if created_before:
+            created["lte"] = created_before
+        filt["createdAt"] = created
+    if updated_after or updated_before:
+        updated: dict[str, Any] = {}
+        if updated_after:
+            updated["gte"] = updated_after
+        if updated_before:
+            updated["lte"] = updated_before
+        filt["updatedAt"] = updated
 
-    data = client.query(ISSUES_QUERY, {"filter": filt, "first": limit})
-    return [_format_issue(i) for i in data["issues"]["nodes"]]
+    data = client.query(ISSUES_QUERY, {"filter": filt, "first": min(limit, 50)})
+    results = [_format_issue(i) for i in data["issues"]["nodes"]]
+    while len(results) < limit and data["issues"]["pageInfo"]["hasNextPage"]:
+        cursor = data["issues"]["pageInfo"]["endCursor"]
+        page_size = min(limit - len(results), 50)
+        data = client.query(ISSUES_QUERY, {"filter": filt, "first": page_size, "after": cursor})
+        results.extend(_format_issue(i) for i in data["issues"]["nodes"])
+    return results[:limit]
 
 
 def get_issue(client: LinearClient, identifier: str) -> dict[str, Any]:

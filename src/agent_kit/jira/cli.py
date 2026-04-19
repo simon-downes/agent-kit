@@ -81,6 +81,10 @@ def statuses(project_key: str) -> None:
 @click.option("--assignee", help="Filter by assignee name")
 @click.option("--type", "issue_type", help="Filter by issue type (Bug, Task, Story, etc.)")
 @click.option("--label", help="Filter by label")
+@click.option("--created-after", help="Created on or after date (YYYY-MM-DD)")
+@click.option("--created-before", help="Created on or before date (YYYY-MM-DD)")
+@click.option("--updated-after", help="Updated on or after date (YYYY-MM-DD)")
+@click.option("--updated-before", help="Updated on or before date (YYYY-MM-DD)")
 @click.option("--jql", help="Raw JQL query (overrides other filters)")
 @click.option("--limit", default=50, help="Maximum results")
 @handle_errors
@@ -90,6 +94,10 @@ def issues(
     assignee: str | None,
     issue_type: str | None,
     label: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    updated_after: str | None,
+    updated_before: str | None,
     jql: str | None,
     limit: int,
 ) -> None:
@@ -103,6 +111,10 @@ def issues(
             assignee=assignee,
             issue_type=issue_type,
             label=label,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
             limit=limit,
         )
     )

@@ -1,7 +1,7 @@
 # Jira
 
 Issue tracking and project management via Jira Cloud REST API v3. Uses scoped API tokens
-with basic auth against `api.atlassian.com` (not `site.atlassian.net`).
+with Basic auth (email:token) against `api.atlassian.com`.
 
 ## Credentials
 

@@ -86,6 +86,10 @@ def _resolve_filters(
 @click.option("--assignee", help="Filter by assignee name")
 @click.option("--label", help="Filter by label name")
 @click.option("--project", "project_name", help="Filter by project name")
+@click.option("--created-after", help="Created on or after date (YYYY-MM-DD)")
+@click.option("--created-before", help="Created on or before date (YYYY-MM-DD)")
+@click.option("--updated-after", help="Updated on or after date (YYYY-MM-DD)")
+@click.option("--updated-before", help="Updated on or before date (YYYY-MM-DD)")
 @click.option("--limit", default=50, help="Maximum results")
 @handle_errors
 def issues(
@@ -94,6 +98,10 @@ def issues(
     assignee: str | None,
     label: str | None,
     project_name: str | None,
+    created_after: str | None,
+    created_before: str | None,
+    updated_after: str | None,
+    updated_before: str | None,
     limit: int,
 ) -> None:
     """List issues for a team."""
@@ -108,6 +116,10 @@ def issues(
             assignee_id=resolved.get("assignee_id"),
             label_id=resolved.get("label_id"),
             project_name=project_name,
+            created_after=created_after,
+            created_before=created_before,
+            updated_after=updated_after,
+            updated_before=updated_before,
             limit=limit,
         )
     )

@@ -59,7 +59,8 @@ Credential management — store tokens, OAuth login, import from environment.
 
 ### [Brain](docs/brain.md)
 
-Query and manage the second brain — index lookups, context creation, status, validation.
+Query and manage the second brain — ranked search across index and content, context
+creation, status, validation.
 
 ### [Notion](docs/notion.md)
 

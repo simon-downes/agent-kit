@@ -22,8 +22,8 @@ src/agent_kit/
 │   ├── oauth.py        # OAuth2 + PKCE flow
 │   └── providers.yaml  # Bundled OAuth provider definitions
 ├── brain/              # Second brain management
-│   ├── cli.py          # Brain subcommands (index, create-context, status, validate)
-│   └── client.py       # Context management, index queries, validation
+│   ├── cli.py          # Brain subcommands (search, index, status, validate)
+│   └── client.py       # Context management, search, index queries, validation
 ├── notion/             # Notion integration
 │   ├── cli.py          # Notion subcommands
 │   ├── client.py       # MCP tool calls, response parsing, scope checks

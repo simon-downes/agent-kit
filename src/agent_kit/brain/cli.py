@@ -15,6 +15,7 @@ from agent_kit.brain.client import (
     query_index,
     reindex_context,
     resolve_brain_dir,
+    search_brain,
     validate_context,
     validate_name,
     validate_origins,
@@ -91,6 +92,26 @@ def index(context: str | None, entity_type: str | None, slug: str | None) -> Non
     context_path = _resolve_context(brain_dir, context)
     idx = load_index(context_path)
     output(query_index(idx, entity_type=entity_type, slug=slug))
+
+
+@brain.command()
+@click.argument("query")
+@click.option("--context", help="Limit search to a specific context")
+@click.option("--limit", default=20, help="Maximum results")
+@handle_errors
+def search(query: str, context: str | None, limit: int) -> None:
+    """Search the brain for matching entities, content, and memory.
+
+    Searches index metadata (name, tags, summary), file content, and
+    conversation memory. Results are ranked by match quality and recency.
+    """
+    config = load_config()
+    brain_dir = resolve_brain_dir(config)
+    results = search_brain(brain_dir, query, context=context, limit=limit)
+    # Strip internal mtime from output
+    for r in results:
+        r.pop("modified", None)
+    output(results)
 
 
 @brain.command()

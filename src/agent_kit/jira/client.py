@@ -6,7 +6,10 @@ import httpx
 
 
 class JiraClient:
-    """Thin wrapper around Jira Cloud REST API v3 using scoped API tokens."""
+    """Thin wrapper around Jira Cloud REST API v3 using scoped API tokens.
+
+    Uses Basic auth (email:token) against api.atlassian.com/ex/jira/{cloud_id}.
+    """
 
     def __init__(self, email: str, token: str, cloud_id: str):
         self._client = httpx.Client(
@@ -201,6 +204,10 @@ def search_issues(
     assignee: str | None = None,
     issue_type: str | None = None,
     label: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
+    updated_after: str | None = None,
+    updated_before: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     if jql is None:
@@ -215,14 +222,30 @@ def search_issues(
             clauses.append(f'issuetype = "{_jql_escape(issue_type)}"')
         if label:
             clauses.append(f'labels = "{_jql_escape(label)}"')
+        if created_after:
+            clauses.append(f'created >= "{_jql_escape(created_after)}"')
+        if created_before:
+            clauses.append(f'created <= "{_jql_escape(created_before)}"')
+        if updated_after:
+            clauses.append(f'updated >= "{_jql_escape(updated_after)}"')
+        if updated_before:
+            clauses.append(f'updated <= "{_jql_escape(updated_before)}"')
         jql = " AND ".join(clauses) if clauses else "ORDER BY created DESC"
 
     fields = "summary,status,assignee,priority,issuetype,labels,created,updated"
-    data = client.post(
-        "/search/jql",
-        json={"jql": jql, "maxResults": limit, "fields": fields.split(",")},
-    )
-    return [_format_issue(i) for i in data.get("issues", [])]
+    results: list[dict[str, Any]] = []
+    next_token: str | None = None
+    while len(results) < limit:
+        page_size = min(limit - len(results), 100)
+        body: dict[str, Any] = {"jql": jql, "maxResults": page_size, "fields": fields.split(",")}
+        if next_token:
+            body["nextPageToken"] = next_token
+        data = client.post("/search/jql", json=body)
+        results.extend(_format_issue(i) for i in data.get("issues", []))
+        if data.get("isLast", True):
+            break
+        next_token = data.get("nextPageToken")
+    return results[:limit]
 
 
 def get_issue(client: JiraClient, key: str) -> dict[str, Any]:
