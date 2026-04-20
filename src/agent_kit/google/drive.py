@@ -27,6 +27,7 @@ FORMAT_MIME = {
 
 def _get(path: str, params: dict[str, Any] | None = None) -> Any:
     token = get_token()
+    params = {**(params or {}), "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
     resp = httpx.get(
         f"{API_BASE}{path}",
         params=params,
