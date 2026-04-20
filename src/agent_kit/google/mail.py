@@ -199,6 +199,8 @@ def html_to_markdown(html: str) -> str:
     """Convert HTML to markdown. Uses pandoc if available, falls back to basic stripping."""
     # Strip inline images (signature logos, tracking pixels)
     html = re.sub(r"<img[^>]*>", "", html, flags=re.IGNORECASE)
+    # Strip style attributes from tags
+    html = re.sub(r'\s+style="[^"]*"', "", html, flags=re.IGNORECASE)
 
     try:
         result = subprocess.run(
@@ -209,12 +211,12 @@ def html_to_markdown(html: str) -> str:
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
+            return _clean_markdown(result.stdout.strip())
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
     # Fallback: basic HTML tag stripping
-    return _strip_html(html)
+    return _clean_markdown(_strip_html(html))
 
 
 def _strip_html(html: str) -> str:
@@ -225,11 +227,26 @@ def _strip_html(html: str) -> str:
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
     text = re.sub(r"</div>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<div[^>]*>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"&nbsp;", " ", text)
     text = re.sub(r"&amp;", "&", text)
     text = re.sub(r"&lt;", "<", text)
     text = re.sub(r"&gt;", ">", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _clean_markdown(text: str) -> str:
+    """Remove style/id attributes that leak into markdown output."""
+    # Remove {style="..."} and {#id style="..."} attribute blocks
+    text = re.sub(r'\{[^}]*style="[^"]*"[^}]*\}', "", text)
+    # Remove standalone {#id} anchors
+    text = re.sub(r"\{#[^}]+\}", "", text)
+    # Remove empty span-like constructs []{...}
+    text = re.sub(r"\[\]\s*\{[^}]*\}", "", text)
+    # Clean up excess whitespace left behind
+    text = re.sub(r" +\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
