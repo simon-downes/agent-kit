@@ -39,8 +39,10 @@ src/agent_kit/
 │   ├── calendar.py     # Calendar API client
 │   └── drive.py        # Drive API client + pandoc conversion
 └── slack/              # Slack integration
-    ├── cli.py          # Slack subcommands
-    └── client.py       # Webhook HTTP calls
+    ├── cli.py          # Slack subcommands (channels, history, search, send)
+    ├── client.py       # Webhook HTTP calls
+    ├── api.py          # Web API client (user token, conversations.*)
+    └── resolve.py      # Channel/user resolution and caching
 ```
 
 ## Architecture

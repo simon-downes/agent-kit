@@ -16,7 +16,19 @@ DEFAULT_CONFIG = {
     "auth": {
         "notion": {"type": "oauth"},
         "linear": {"type": "static", "fields": ["token"]},
-        "slack": {"type": "static", "fields": ["webhook_url"]},
+        "slack": {
+            "type": "oauth",
+            "authorization_endpoint": "https://slack.com/oauth/v2/authorize",
+            "token_endpoint": "https://slack.com/api/oauth.v2.access",
+            "token_path": "authed_user.access_token",
+            "refresh_token_path": "authed_user.refresh_token",
+            "extra_params": {
+                "user_scope": (
+                    "channels:history channels:read groups:history groups:read "
+                    "users:read search:read im:history mpim:history"
+                ),
+            },
+        },
         "github": {"type": "static", "fields": ["token"]},
         "aws": {
             "type": "static",
@@ -45,6 +57,13 @@ DEFAULT_CONFIG = {
         "mail": {"enabled": True},
         "calendar": {"enabled": True},
         "drive": {"enabled": True},
+    },
+    "slack": {
+        "read": {
+            "enabled": True,
+            "scope": {"channels": [], "include_dms": False, "include_group_dms": False},
+        },
+        "write": {"enabled": True},
     },
 }
 

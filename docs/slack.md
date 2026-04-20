@@ -1,54 +1,118 @@
 # Slack
 
-Send messages to Slack channels via incoming webhooks.
+Read channels, search messages, and send notifications via Slack.
 
 ## Credentials
 
-Requires a Slack incoming webhook URL. Resolved in order:
+Two auth mechanisms for different use cases:
 
-1. `~/.agent-kit/credentials.yaml` → `slack.webhook_url`
-2. `SLACK_WEBHOOK_URL` environment variable
+**Read access** — requires a Slack app with user token (PKCE OAuth):
+
+```bash
+ak auth set slack client_id
+ak auth set slack client_secret
+ak auth login slack
+```
+
+**Write access** — uses an incoming webhook (existing):
 
 ```bash
 ak auth set slack webhook_url
 ```
 
-## Commands
+### App Setup
 
-### `ak slack send [text]`
+1. Create an internal Slack app at https://api.slack.com/apps
+2. Enable PKCE under OAuth & Permissions
+3. Add `http://localhost:8585/callback` as redirect URL
+4. Add user token scopes: `channels:history`, `channels:read`, `groups:history`,
+   `groups:read`, `users:read`, `search:read`, `im:history`, `mpim:history`
+5. Store client_id and client_secret, then run `ak auth login slack`
 
-Send a message. Text can be provided as an argument or piped via stdin. Supports
-[mrkdwn](https://api.slack.com/reference/surfaces/formatting) formatting.
+## Read Commands
+
+### `ak slack channels`
+
+List channels you're in.
 
 ```bash
-# Simple text
-ak slack send "Deploy complete :white_check_mark:"
+ak slack channels
+ak slack channels --limit 20
+```
 
-# With header and fields
-ak slack send "All checks passed" --header "Deploy Complete" \
-  --field "App=my-app" --field "Env=prod"
+### `ak slack history <channel>`
 
-# Pipe from another command
-echo "Build finished" | ak slack send
+Read recent messages from a channel. Accepts `#name`, `@user` (DMs if enabled),
+or channel ID.
 
-# Raw Block Kit JSON from stdin
-echo '{"text":"fallback","blocks":[...]}' | ak slack send --json
+```bash
+ak slack history "#platform"
+ak slack history "#platform" --since 8 --limit 20
+ak slack history C1234567890
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--header TEXT` | Header block text |
-| `--field KEY=VALUE` | Section field (repeatable) |
-| `--json` | Read raw Block Kit JSON payload from stdin |
+| `--since N` | Hours to look back (default: 24) |
+| `--limit N` | Maximum messages (default: 50) |
 
-Outputs `OK` on success.
+### `ak slack thread <channel> <thread-ts>`
 
-### Message Structure
+Read thread replies.
 
-Without `--json`, the message is built as Block Kit blocks:
+```bash
+ak slack thread "#platform" 1776709000.123456
+```
 
-1. **Header block** (if `--header` provided) — plain text
-2. **Section block** — the message text (mrkdwn)
-3. **Fields block** (if `--field` provided) — key/value pairs
+### `ak slack search <query>`
 
-With `--json`, the entire payload is sent as-is. Use this for full Block Kit control.
+Search messages using Slack query syntax. Always sorted by date (newest first).
+
+```bash
+ak slack search "aurora failover"
+ak slack search "from:jane in:#platform after:2026-04-01"
+```
+
+| Option | Description |
+|--------|-------------|
+| `--limit N` | Maximum results (default: 20) |
+
+### `ak slack users [query]`
+
+List or search workspace users.
+
+```bash
+ak slack users
+ak slack users "simon"
+ak slack users --limit 10
+```
+
+## Write Commands
+
+### `ak slack send`
+
+Send a message via incoming webhook. Supports mrkdwn formatting.
+
+```bash
+ak slack send "Deploy complete :white_check_mark:"
+ak slack send "All checks passed" --header "Deploy Complete" --field "App=my-app"
+echo "Build finished" | ak slack send
+echo '{"text":"fallback","blocks":[...]}' | ak slack send --json
+```
+
+## Config
+
+```yaml
+slack:
+  read:
+    enabled: true
+    scope:
+      channels: []           # empty = all channels you're in
+      include_dms: false     # DMs disabled by default
+      include_group_dms: false
+  write:
+    enabled: true
+```
+
+When `channels` has entries, only those channels are accessible for read operations.
+DMs and group DMs require explicit opt-in.

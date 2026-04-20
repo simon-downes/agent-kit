@@ -165,13 +165,7 @@ def login_cmd(service: str) -> None:
         client_secret=client_secret,
     )
 
-    token_data = {"access_token": tokens["access_token"]}
-    if "refresh_token" in tokens:
-        token_data["refresh_token"] = tokens["refresh_token"]
-    if "expires_in" in tokens:
-        expires_at = datetime.now(UTC).timestamp() + tokens["expires_in"]
-        token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
-    set_fields(service, token_data)
+    _store_tokens(service, tokens, auth_config)
 
     print("OK")
 
@@ -200,13 +194,7 @@ def refresh_cmd(service: str) -> None:
     client_secret = get_field(service, "client_secret")
     tokens = refresh_token(token_endpoint, client_id, stored_refresh, client_secret=client_secret)
 
-    token_data = {"access_token": tokens["access_token"]}
-    if "refresh_token" in tokens:
-        token_data["refresh_token"] = tokens["refresh_token"]
-    if "expires_in" in tokens:
-        expires_at = datetime.now(UTC).timestamp() + tokens["expires_in"]
-        token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
-    set_fields(service, token_data)
+    _store_tokens(service, tokens, auth_config)
 
     print("OK")
 
@@ -245,3 +233,38 @@ def _lookup_provider(service: str) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _extract(data: dict, path: str) -> str | None:
+    """Extract a value from a nested dict using dot-separated path."""
+    for key in path.split("."):
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+        if data is None:
+            return None
+    return str(data) if data is not None else None
+
+
+def _store_tokens(service: str, tokens: dict, auth_config: dict) -> None:
+    """Extract and store tokens from an OAuth response."""
+    access = _extract(tokens, auth_config.get("token_path", "access_token"))
+    if not access:
+        raise AuthError(f"no access token in response for {service}")
+
+    token_data = {"access_token": access}
+    refresh = _extract(tokens, auth_config.get("refresh_token_path", "refresh_token"))
+    if refresh:
+        token_data["refresh_token"] = refresh
+
+    # Look for expires_in at top level or nested alongside the token
+    expires_in = tokens.get("expires_in")
+    if not expires_in:
+        authed = tokens.get("authed_user")
+        if isinstance(authed, dict):
+            expires_in = authed.get("expires_in")
+    if expires_in:
+        expires_at = datetime.now(UTC).timestamp() + int(expires_in)
+        token_data["expires_at"] = datetime.fromtimestamp(expires_at, UTC).isoformat()
+
+    set_fields(service, token_data)

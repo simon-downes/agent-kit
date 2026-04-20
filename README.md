@@ -84,7 +84,8 @@ events, search and fetch documents. Google Docs export as markdown via pandoc.
 
 ### [Slack](docs/slack.md)
 
-Send messages via incoming webhooks. Supports text, headers, fields, and raw Block Kit JSON.
+Read channels, search messages, list users, and send notifications. Read via user
+token OAuth, write via incoming webhooks.
 
 ## Output Conventions
 
