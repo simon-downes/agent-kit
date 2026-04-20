@@ -56,18 +56,27 @@ def register_client(registration_endpoint: str, redirect_uri: str) -> dict[str, 
 
 
 def exchange_code(
-    token_endpoint: str, client_id: str, code: str, verifier: str, redirect_uri: str
+    token_endpoint: str,
+    client_id: str,
+    code: str,
+    verifier: str,
+    redirect_uri: str,
+    *,
+    client_secret: str | None = None,
 ) -> dict[str, Any]:
     """Exchange authorization code for tokens."""
+    data = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_verifier": verifier,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
     resp = httpx.post(
         token_endpoint,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "code_verifier": verifier,
-        },
+        data=data,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=HTTP_TIMEOUT,
     )
@@ -75,15 +84,20 @@ def exchange_code(
     return resp.json()
 
 
-def refresh_token(token_endpoint: str, client_id: str, refresh: str) -> dict[str, Any]:
+def refresh_token(
+    token_endpoint: str, client_id: str, refresh: str, *, client_secret: str | None = None
+) -> dict[str, Any]:
     """Refresh access token using refresh token."""
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": refresh,
+        "client_id": client_id,
+    }
+    if client_secret:
+        data["client_secret"] = client_secret
     resp = httpx.post(
         token_endpoint,
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresh,
-            "client_id": client_id,
-        },
+        data=data,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=HTTP_TIMEOUT,
     )
@@ -97,6 +111,9 @@ def build_auth_url(
     redirect_uri: str,
     state: str,
     challenge: str,
+    *,
+    scopes: list[str] | None = None,
+    extra_params: dict[str, str] | None = None,
 ) -> str:
     """Build OAuth authorization URL."""
     params = {
@@ -107,6 +124,10 @@ def build_auth_url(
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
+    if scopes:
+        params["scope"] = " ".join(scopes)
+    if extra_params:
+        params.update(extra_params)
     return f"{authorization_endpoint}?{urlencode(params)}"
 
 

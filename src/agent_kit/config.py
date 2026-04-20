@@ -24,6 +24,18 @@ DEFAULT_CONFIG = {
         },
         "scalr": {"type": "static", "fields": ["token", "hostname"]},
         "jira": {"type": "static", "fields": ["email", "token", "cloud_id"]},
+        "google": {
+            "type": "oauth",
+            "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_endpoint": "https://oauth2.googleapis.com/token",
+            "scopes": [
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/calendar.readonly",
+                "https://www.googleapis.com/auth/drive.readonly",
+                "https://www.googleapis.com/auth/userinfo.email",
+            ],
+            "extra_params": {"access_type": "offline", "prompt": "consent"},
+        },
     },
     "notion": {
         "read": {"enabled": True, "scope": {"pages": [], "databases": []}},

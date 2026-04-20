@@ -107,13 +107,21 @@ def login_cmd(service: str) -> None:
 
     # Register client if needed
     if "client_id" not in auth_config:
-        reg_endpoint = auth_config.get("registration_endpoint")
-        if not reg_endpoint:
-            raise AuthError(f"no client_id or registration_endpoint for {service}")
+        # Check credential store for pre-registered client_id
+        stored_client_id = get_field(service, "client_id")
+        if stored_client_id:
+            auth_config["client_id"] = stored_client_id
+        else:
+            reg_endpoint = auth_config.get("registration_endpoint")
+            if not reg_endpoint:
+                raise AuthError(f"no client_id or registration_endpoint for {service}")
 
-        click.echo("Registering OAuth client...", err=True)
-        client_data = register_client(reg_endpoint, redirect_uri)
-        auth_config["client_id"] = client_data["client_id"]
+            click.echo("Registering OAuth client...", err=True)
+            client_data = register_client(reg_endpoint, redirect_uri)
+            auth_config["client_id"] = client_data["client_id"]
+
+    # Get client_secret from credential store if available (e.g. Google)
+    client_secret = get_field(service, "client_secret")
 
     # Write discovered config back
     raw_config.setdefault("auth", {})[service] = auth_config
@@ -129,6 +137,8 @@ def login_cmd(service: str) -> None:
         redirect_uri,
         state,
         challenge,
+        scopes=auth_config.get("scopes"),
+        extra_params=auth_config.get("extra_params"),
     )
 
     if not open_browser(auth_url):
@@ -152,6 +162,7 @@ def login_cmd(service: str) -> None:
         code,
         verifier,
         redirect_uri,
+        client_secret=client_secret,
     )
 
     token_data = {"access_token": tokens["access_token"]}
@@ -186,7 +197,8 @@ def refresh_cmd(service: str) -> None:
     if not all([token_endpoint, client_id, stored_refresh]):
         raise AuthError(f"missing config or refresh token for {service}")
 
-    tokens = refresh_token(token_endpoint, client_id, stored_refresh)
+    client_secret = get_field(service, "client_secret")
+    tokens = refresh_token(token_endpoint, client_id, stored_refresh, client_secret=client_secret)
 
     token_data = {"access_token": tokens["access_token"]}
     if "refresh_token" in tokens:
