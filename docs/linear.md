@@ -13,7 +13,9 @@ Requires a Linear personal API key. Resolved in order:
 
 1. Go to https://linear.app/settings/api
 2. Click **Create key** — give it a label (e.g. "Agent Kit")
-3. Copy the key and store it:
+3. Select scopes: **Read**, **Create Issues**, **Create Comments**
+   (no need for full access)
+4. Copy the key and store it:
 
 ```bash
 ak auth set linear token
