@@ -14,20 +14,39 @@ ak auth set slack client_secret
 ak auth login slack
 ```
 
-**Write access** — uses an incoming webhook (existing):
+**Write access** — uses an incoming webhook (no app needed):
 
 ```bash
 ak auth set slack webhook_url
 ```
 
-### App Setup
+### App Setup (for read access)
 
-1. Create an internal Slack app at https://api.slack.com/apps
-2. Enable PKCE under OAuth & Permissions
-3. Add `http://localhost:8585/callback` as redirect URL
-4. Add user token scopes: `channels:history`, `channels:read`, `groups:history`,
-   `groups:read`, `users:read`, `search:read`, `im:history`, `mpim:history`
-5. Store client_id and client_secret, then run `ak auth login slack`
+1. Go to https://api.slack.com/apps → **Create New App** → **From scratch**
+2. Name the app (e.g. "Agent Toolkit") and select your workspace
+3. Go to **OAuth & Permissions** → enable **PKCE**
+4. Go to **App Manifest** and add to `oauth_config.redirect_urls`:
+   ```
+   http://localhost:8585/callback
+   ```
+   (The manifest accepts localhost with PKCE; the UI may not)
+5. Add **User Token Scopes** (not Bot Token Scopes):
+   - `channels:history` — read public channel messages
+   - `channels:read` — list public channels
+   - `groups:history` — read private channel messages
+   - `groups:read` — list private channels
+   - `users:read` — resolve user IDs to names
+   - `search:read` — search messages
+   - `im:history` — read DMs (optional)
+   - `mpim:history` — read group DMs (optional)
+6. Note the **Client ID** and **Client Secret** from **Basic Information**
+7. Install the app to your workspace (may require admin approval)
+8. Store credentials and authenticate:
+   ```bash
+   ak auth set slack client_id
+   ak auth set slack client_secret
+   ak auth login slack
+   ```
 
 ## Read Commands
 

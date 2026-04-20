@@ -4,8 +4,7 @@ Read-only access to Gmail, Calendar, and Google Drive via a single shared OAuth 
 
 ## Credentials
 
-Requires a Google Cloud project with OAuth Desktop App credentials. See the
-[setup guide](../docs/google-workspace-setup.md) for step-by-step instructions.
+Requires a Google Cloud project with OAuth Desktop App credentials.
 
 ```bash
 ak auth set google client_id
@@ -14,6 +13,28 @@ ak auth login google
 ```
 
 Tokens auto-refresh transparently. If refresh fails, re-run `ak auth login google`.
+
+### Setup
+
+1. Go to https://console.cloud.google.com → create a new project (or use existing)
+2. Go to **APIs & Services → Library** and enable:
+   - Gmail API
+   - Google Calendar API
+   - Google Drive API
+3. Go to **Google Auth platform → Branding** (or OAuth consent screen):
+   - User type: **Internal** (org users only, no Google review needed)
+   - Fill in app name and contact email
+4. Go to **Google Auth platform → Data Access** (or Scopes):
+   - Add scopes: `gmail.readonly`, `calendar.readonly`, `drive.readonly`, `userinfo.email`
+5. Go to **Google Auth platform → Clients** (or Credentials):
+   - Click **Create Client** → **Desktop app**
+   - Note the **Client ID** and **Client Secret**
+6. Store credentials and authenticate:
+   ```bash
+   ak auth set google client_id
+   ak auth set google client_secret
+   ak auth login google
+   ```
 
 ## Commands
 

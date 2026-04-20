@@ -9,6 +9,12 @@ Requires a Linear personal API key. Resolved in order:
 1. `~/.agent-kit/credentials.yaml` → `linear.token`
 2. `LINEAR_TOKEN` environment variable
 
+### Setup
+
+1. Go to https://linear.app/settings/api
+2. Click **Create key** — give it a label (e.g. "Agent Kit")
+3. Copy the key and store it:
+
 ```bash
 ak auth set linear token
 ```
