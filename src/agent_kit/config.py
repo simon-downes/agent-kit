@@ -41,6 +41,11 @@ DEFAULT_CONFIG = {
         "read": {"enabled": True, "scope": {"pages": [], "databases": []}},
         "write": {"enabled": False, "scope": {"pages": [], "databases": []}},
     },
+    "google": {
+        "mail": {"enabled": True},
+        "calendar": {"enabled": True},
+        "drive": {"enabled": True},
+    },
 }
 
 

@@ -32,6 +32,12 @@ src/agent_kit/
 │   ├── cli.py          # Linear subcommands
 │   ├── client.py       # GraphQL client, queries, mutations
 │   └── resolve.py      # Name → ID resolution (statuses, assignees, labels)
+├── google/             # Google Workspace integration
+│   ├── cli.py          # Google subcommands (mail, calendar, drive)
+│   ├── auth.py         # Token getter with auto-refresh
+│   ├── mail.py         # Gmail API client
+│   ├── calendar.py     # Calendar API client
+│   └── drive.py        # Drive API client + pandoc conversion
 └── slack/              # Slack integration
     ├── cli.py          # Slack subcommands
     └── client.py       # Webhook HTTP calls

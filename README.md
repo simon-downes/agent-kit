@@ -77,6 +77,11 @@ uploads. Communicates directly with Linear's GraphQL API.
 Issue tracking — list projects, query issues via JQL, create/update/transition issues,
 comments, file attachments. Communicates with Jira Cloud REST API v3 using scoped API tokens.
 
+### [Google Workspace](docs/google.md)
+
+Read-only access to Gmail, Calendar, and Google Drive. Search and read emails, list
+events, search and fetch documents. Google Docs export as markdown via pandoc.
+
 ### [Slack](docs/slack.md)
 
 Send messages via incoming webhooks. Supports text, headers, fields, and raw Block Kit JSON.
@@ -101,5 +106,6 @@ ak linear issues --team PLAT | jq '.[].identifier'
 - [Notion](docs/notion.md) — Notion integration
 - [Linear](docs/linear.md) — Linear integration
 - [Jira](docs/jira.md) — Jira Cloud integration
+- [Google Workspace](docs/google.md) — Gmail, Calendar, and Drive
 - [Slack](docs/slack.md) — Slack integration
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and conventions
