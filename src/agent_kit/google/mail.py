@@ -238,13 +238,15 @@ def _strip_html(html: str) -> str:
 
 
 def _clean_markdown(text: str) -> str:
-    """Remove style/id attributes that leak into markdown output."""
+    """Remove style/id attributes and residual HTML that leak into markdown output."""
     # Remove {style="..."} and {#id style="..."} attribute blocks
     text = re.sub(r'\{[^}]*style="[^"]*"[^}]*\}', "", text)
     # Remove standalone {#id} anchors
     text = re.sub(r"\{#[^}]+\}", "", text)
     # Remove empty span-like constructs []{...}
     text = re.sub(r"\[\]\s*\{[^}]*\}", "", text)
+    # Remove any residual HTML tags
+    text = re.sub(r"<[^>]+>", "", text)
     # Clean up excess whitespace left behind
     text = re.sub(r" +\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
