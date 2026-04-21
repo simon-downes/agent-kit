@@ -21,6 +21,13 @@ def _get_webhook_url() -> str:
     return url
 
 
+def _load_config() -> dict:
+    """Load config once per command."""
+    from agent_kit.config import load_config
+
+    return load_config()
+
+
 @click.group()
 def slack() -> None:
     """Slack — channels, messages, search, and webhooks."""
@@ -31,35 +38,22 @@ def slack() -> None:
 
 @slack.command()
 @click.option("--limit", default=100, help="Maximum results")
+@click.option("--archived", is_flag=True, help="Include archived channels")
+@click.option("--no-cache", is_flag=True, help="Bypass cache and fetch from API")
 @handle_errors
-def channels(limit: int) -> None:
-    """List channels you're in."""
-    from agent_kit.config import load_config
+def channels(limit: int, archived: bool, no_cache: bool) -> None:
+    """List public and private channels."""
     from agent_kit.slack.api import require_read
     from agent_kit.slack.resolve import get_channels
 
-    require_read()
-    config = load_config()
-    scope = config.get("slack", {}).get("read", {}).get("scope", {})
+    config = _load_config()
+    require_read(config)
 
-    chs = get_channels(
-        include_dms=scope.get("include_dms", False),
-        include_group_dms=scope.get("include_group_dms", False),
-    )
+    chs = get_channels(include_archived=archived, no_cache=no_cache)
 
-    allowed = scope.get("channels", [])
     result = []
     for c in chs[:limit]:
-        if allowed and c.get("name") not in allowed and f"#{c.get('name')}" not in allowed:
-            if c["id"] not in allowed:
-                continue
-        ch_type = "public"
-        if c.get("is_im"):
-            ch_type = "dm"
-        elif c.get("is_mpim"):
-            ch_type = "group_dm"
-        elif c.get("is_private"):
-            ch_type = "private"
+        ch_type = "private" if c.get("is_private") else "public"
         result.append(
             {
                 "id": c["id"],
@@ -72,27 +66,57 @@ def channels(limit: int) -> None:
 
 
 @slack.command()
+@click.option("--limit", default=100, help="Maximum results")
+@click.option("--group", is_flag=True, help="Include group DMs")
+@click.option("--no-cache", is_flag=True, help="Bypass cache and fetch from API")
+@handle_errors
+def dms(limit: int, group: bool, no_cache: bool) -> None:
+    """List DM conversations."""
+    from agent_kit.slack.api import require_read
+    from agent_kit.slack.resolve import get_dms, resolve_user_name
+
+    config = _load_config()
+    require_read(config)
+
+    conversations = get_dms(include_group=group, no_cache=no_cache)
+
+    result = []
+    for d in conversations[:limit]:
+        if d.get("is_mpim"):
+            name = d.get("name", d["id"])
+            dm_type = "group_dm"
+        else:
+            name = resolve_user_name(d.get("user", ""))
+            dm_type = "dm"
+        result.append({"id": d["id"], "name": name, "type": dm_type})
+    output(result)
+
+
+@slack.command()
 @click.argument("channel")
 @click.option("--limit", default=50, help="Maximum messages")
 @click.option("--since", default=24, help="Hours to look back (default: 24)")
 @handle_errors
 def history(channel: str, limit: int, since: int) -> None:
-    """Read recent messages from a channel."""
-    from agent_kit.slack.api import api_get, require_read
-    from agent_kit.slack.resolve import check_channel_scope, resolve_channel, resolve_user_name
+    """Read recent messages from a channel or DM."""
+    from agent_kit.slack.api import check_channel_scope, paginated_get, require_read
+    from agent_kit.slack.resolve import resolve_channel, resolve_user_name
 
-    require_read()
+    config = _load_config()
+    require_read(config)
     channel_id, channel_type = resolve_channel(channel)
-    check_channel_scope(channel_id, channel_type)
+    check_channel_scope(config, channel_id, channel_type)
 
     oldest = str(time.time() - (since * 3600))
-    data = api_get(
+    results = paginated_get(
         "conversations.history",
-        {"channel": channel_id, "limit": limit, "oldest": oldest},
+        "messages",
+        {"channel": channel_id, "oldest": oldest},
+        limit=limit,
     )
 
     messages = []
-    for m in reversed(data.get("messages", [])):
+    for m in reversed(results):
         messages.append(
             {
                 "ts": m.get("ts"),
@@ -108,19 +132,23 @@ def history(channel: str, limit: int, since: int) -> None:
 @slack.command()
 @click.argument("channel")
 @click.argument("thread_ts")
+@click.option("--limit", default=100, help="Maximum replies")
 @handle_errors
-def thread(channel: str, thread_ts: str) -> None:
+def thread(channel: str, thread_ts: str, limit: int) -> None:
     """Read thread replies."""
-    from agent_kit.slack.api import api_get, require_read
-    from agent_kit.slack.resolve import check_channel_scope, resolve_channel, resolve_user_name
+    from agent_kit.slack.api import check_channel_scope, paginated_get, require_read
+    from agent_kit.slack.resolve import resolve_channel, resolve_user_name
 
-    require_read()
+    config = _load_config()
+    require_read(config)
     channel_id, channel_type = resolve_channel(channel)
-    check_channel_scope(channel_id, channel_type)
+    check_channel_scope(config, channel_id, channel_type)
 
-    data = api_get(
+    results = paginated_get(
         "conversations.replies",
+        "messages",
         {"channel": channel_id, "ts": thread_ts},
+        limit=limit,
     )
 
     messages = [
@@ -129,21 +157,23 @@ def thread(channel: str, thread_ts: str) -> None:
             "user": resolve_user_name(m.get("user", "")),
             "text": m.get("text", ""),
         }
-        for m in data.get("messages", [])
+        for m in results
     ]
     output(messages)
 
 
 @slack.command()
 @click.argument("query")
-@click.option("--limit", default=20, help="Maximum results")
+@click.option("--limit", default=20, help="Maximum results (max 100)")
 @handle_errors
 def search(query: str, limit: int) -> None:
     """Search messages (Slack query syntax, sorted by date)."""
     from agent_kit.slack.api import api_get, require_read
     from agent_kit.slack.resolve import resolve_user_name
 
-    require_read()
+    config = _load_config()
+    require_read(config)
+    limit = min(limit, 100)
     data = api_get(
         "search.messages",
         {"query": query, "count": limit, "sort": "timestamp", "sort_dir": "desc"},
@@ -166,17 +196,19 @@ def search(query: str, limit: int) -> None:
 @slack.command()
 @click.argument("query", required=False)
 @click.option("--limit", default=50, help="Maximum results")
+@click.option("--no-cache", is_flag=True, help="Bypass cache and fetch from API")
 @handle_errors
-def users(query: str | None, limit: int) -> None:
+def users(query: str | None, limit: int, no_cache: bool) -> None:
     """List or search workspace users."""
     from agent_kit.slack.api import require_read
     from agent_kit.slack.resolve import get_users, search_users
 
-    require_read()
+    config = _load_config()
+    require_read(config)
     if query:
         result = search_users(query)
     else:
-        result = list(get_users().values())
+        result = list(get_users(no_cache=no_cache).values())
     output(result[:limit])
 
 
@@ -206,7 +238,6 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
         print("OK")
         return
 
-    # Read text from stdin if not provided as argument
     if not text:
         if sys.stdin.isatty():
             raise ValueError("provide message text as argument or via stdin")

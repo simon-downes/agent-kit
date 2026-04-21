@@ -1,10 +1,11 @@
 """Slack Web API client for read operations."""
 
+import sys
+import time
 from typing import Any
 
 import httpx
 
-from agent_kit.config import load_config
 from agent_kit.errors import AuthError, ConfigError
 
 API_BASE = "https://slack.com/api"
@@ -28,21 +29,19 @@ def get_user_token() -> str:
     return token
 
 
-def require_read() -> None:
+def require_read(config: dict) -> None:
     """Check that Slack read is enabled."""
-    config = load_config()
     if not config.get("slack", {}).get("read", {}).get("enabled", True):
         raise ConfigError("Slack read operations are disabled in config")
 
 
-def check_channel_scope(channel_id: str, channel_type: str | None = None) -> None:
+def check_channel_scope(config: dict, channel_id: str, channel_type: str | None = None) -> None:
     """Check if a channel is within the configured scope."""
-    config = load_config()
     scope = config.get("slack", {}).get("read", {}).get("scope", {})
 
-    if channel_type in ("im",) and not scope.get("include_dms", False):
+    if channel_type == "im" and not scope.get("include_dms", False):
         raise ConfigError("DM access is disabled in config (set slack.read.scope.include_dms)")
-    if channel_type in ("mpim",) and not scope.get("include_group_dms", False):
+    if channel_type == "mpim" and not scope.get("include_group_dms", False):
         raise ConfigError(
             "Group DM access is disabled in config (set slack.read.scope.include_group_dms)"
         )
@@ -52,18 +51,21 @@ def check_channel_scope(channel_id: str, channel_type: str | None = None) -> Non
         raise ConfigError(f"channel {channel_id} is not in the configured scope")
 
 
-def api_get(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Call a Slack Web API method."""
+def _call(method: str, *, post: bool = False, params: dict[str, Any] | None = None) -> dict:
+    """Call a Slack Web API method (GET or POST)."""
+    global _cached_token
     token = get_user_token()
-    resp = httpx.get(
-        f"{API_BASE}/{method}",
-        params=params or {},
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    if post:
+        resp = httpx.post(f"{API_BASE}/{method}", data=params or {}, headers=headers, timeout=30)
+    else:
+        resp = httpx.get(f"{API_BASE}/{method}", params=params or {}, headers=headers, timeout=30)
+
     if resp.status_code == 429:
+        retry_after = resp.headers.get("Retry-After", "unknown")
         raise httpx.HTTPStatusError(
-            "Slack API rate limit exceeded, try again later",
+            f"rate limited on {method} (retry after {retry_after}s)",
             request=resp.request,
             response=resp,
         )
@@ -72,25 +74,46 @@ def api_get(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]
     if not data.get("ok"):
         error = data.get("error", "unknown error")
         if error in ("token_revoked", "token_expired", "invalid_auth", "not_authed"):
+            _cached_token = None
             raise AuthError(f"Slack auth failed: {error} — run 'ak auth login slack'")
         raise ValueError(f"Slack API error: {error}")
     return data
+
+
+def api_get(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Call a Slack Web API method via GET."""
+    return _call(method, params=params)
+
+
+def api_post(method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Call a Slack Web API method via POST."""
+    return _call(method, post=True, params=params)
 
 
 def paginated_get(
     method: str, key: str, params: dict[str, Any] | None = None, *, limit: int = 100
 ) -> list[dict[str, Any]]:
     """Call a paginated Slack API method, collecting all results up to limit."""
+    max_pages = 10
     params = dict(params or {})
-    params["limit"] = min(limit, 200)
+    params["limit"] = 200
     results: list[dict[str, Any]] = []
 
-    while len(results) < limit:
+    for page in range(1, max_pages + 1):
         data = api_get(method, params)
-        results.extend(data.get(key, []))
+        items = data.get(key, [])
+        if not items:
+            break
+        results.extend(items)
         cursor = data.get("response_metadata", {}).get("next_cursor", "")
-        if not cursor:
+        if not cursor or len(results) >= limit:
             break
         params["cursor"] = cursor
+        time.sleep(3)
+    else:
+        print(
+            f"Warning: {method} hit max page limit ({max_pages}), results may be incomplete",
+            file=sys.stderr,
+        )
 
     return results[:limit]

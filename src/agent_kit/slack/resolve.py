@@ -1,32 +1,84 @@
-"""Channel and user resolution for Slack."""
+"""Channel and user resolution for Slack with file-based caching."""
 
+import json
+import time
+from pathlib import Path
 from typing import Any
 
-from agent_kit.slack.api import paginated_get
+from agent_kit.slack.api import api_post, paginated_get
+
+CACHE_TTL = 3600  # 1 hour
+
+_cache_dir: Path | None = None
+
+
+def _get_cache_dir() -> Path:
+    """Get cache directory."""
+    global _cache_dir
+    if _cache_dir is None:
+        primary = Path("~/.agent-kit/cache").expanduser()
+        try:
+            primary.mkdir(parents=True, exist_ok=True)
+            _cache_dir = primary
+        except OSError:
+            _cache_dir = Path("/tmp/agent-kit-cache")
+            _cache_dir.mkdir(parents=True, exist_ok=True)
+    return _cache_dir
+
+
+def _read_cache(name: str) -> Any | None:
+    """Read a cache file if it exists and is within TTL."""
+    path = _get_cache_dir() / f"slack-{name}.json"
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        if time.time() - data.get("ts", 0) < CACHE_TTL:
+            return data["items"]
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return None
+
+
+def _write_cache(name: str, items: Any) -> None:
+    """Write items to a cache file."""
+    path = _get_cache_dir() / f"slack-{name}.json"
+    path.write_text(json.dumps({"ts": time.time(), "items": items}))
+
+
+# --- Users ---
 
 _user_cache: dict[str, dict[str, str]] | None = None
-_channel_cache: list[dict[str, Any]] | None = None
 
 
-def get_users() -> dict[str, dict[str, str]]:
-    """Get all users, cached for the session. Returns {user_id: {name, real_name, ...}}."""
+def get_users(*, no_cache: bool = False) -> dict[str, dict[str, str]]:
+    """Get all users. Cached to file with 1hr TTL."""
     global _user_cache
-    if _user_cache is not None:
+    if _user_cache is not None and not no_cache:
         return _user_cache
 
+    if not no_cache:
+        cached = _read_cache("users")
+        if cached is not None:
+            _user_cache = cached
+            return _user_cache
+
     members = paginated_get("users.list", "members", limit=1000)
-    _user_cache = {}
+    result: dict[str, dict[str, str]] = {}
     for m in members:
         if m.get("deleted") or m.get("is_bot"):
             continue
         profile = m.get("profile", {})
-        _user_cache[m["id"]] = {
+        result[m["id"]] = {
             "id": m["id"],
             "name": m.get("name", ""),
             "real_name": m.get("real_name", profile.get("real_name", "")),
             "display_name": profile.get("display_name", ""),
             "email": profile.get("email", ""),
         }
+
+    _user_cache = result
+    _write_cache("users", result)
     return _user_cache
 
 
@@ -52,36 +104,71 @@ def search_users(query: str) -> list[dict[str, str]]:
     ]
 
 
+# --- Channels ---
+
+_channel_cache: list[dict[str, Any]] | None = None
+
+
 def get_channels(
-    *, include_dms: bool = False, include_group_dms: bool = False
+    *,
+    include_archived: bool = False,
+    no_cache: bool = False,
 ) -> list[dict[str, Any]]:
-    """Get channels, cached for the session."""
+    """Get public and private channels. Cached to file with 1hr TTL."""
     global _channel_cache
-    if _channel_cache is not None:
-        return _filter_channels(_channel_cache, include_dms, include_group_dms)
+    if _channel_cache is not None and not no_cache:
+        return _channel_cache
 
-    types = "public_channel,private_channel"
-    if include_dms:
-        types += ",im"
-    if include_group_dms:
-        types += ",mpim"
+    if not no_cache:
+        cached = _read_cache("channels")
+        if cached is not None:
+            _channel_cache = cached
+            return _channel_cache
 
-    channels = paginated_get("conversations.list", "channels", params={"types": types}, limit=1000)
+    params: dict[str, Any] = {"types": "public_channel,private_channel"}
+    if not include_archived:
+        params["exclude_archived"] = "true"
+
+    channels = paginated_get("conversations.list", "channels", params=params, limit=1000)
     _channel_cache = channels
-    return _filter_channels(channels, include_dms, include_group_dms)
+    _write_cache("channels", channels)
+    return _channel_cache
 
 
-def _filter_channels(
-    channels: list[dict[str, Any]], include_dms: bool, include_group_dms: bool
+# --- DMs ---
+
+_dm_cache: list[dict[str, Any]] | None = None
+
+
+def get_dms(
+    *,
+    include_group: bool = False,
+    no_cache: bool = False,
 ) -> list[dict[str, Any]]:
-    result = []
-    for c in channels:
-        if c.get("is_im") and not include_dms:
-            continue
-        if c.get("is_mpim") and not include_group_dms:
-            continue
-        result.append(c)
-    return result
+    """Get DM conversations. Cached to file with 1hr TTL."""
+    global _dm_cache
+    if _dm_cache is not None and not no_cache:
+        return _filter_dms(_dm_cache, include_group)
+
+    if not no_cache:
+        cached = _read_cache("dms")
+        if cached is not None:
+            _dm_cache = cached
+            return _filter_dms(cached, include_group)
+
+    dms = paginated_get("conversations.list", "channels", params={"types": "im,mpim"}, limit=1000)
+    _dm_cache = dms
+    _write_cache("dms", dms)
+    return _filter_dms(dms, include_group)
+
+
+def _filter_dms(dms: list[dict[str, Any]], include_group: bool) -> list[dict[str, Any]]:
+    if include_group:
+        return dms
+    return [d for d in dms if not d.get("is_mpim")]
+
+
+# --- Resolution ---
 
 
 def resolve_channel(name_or_id: str) -> tuple[str, str | None]:
@@ -91,8 +178,7 @@ def resolve_channel(name_or_id: str) -> tuple[str, str | None]:
     """
     if name_or_id.startswith("#"):
         name = name_or_id[1:]
-        channels = get_channels(include_dms=True, include_group_dms=True)
-        for c in channels:
+        for c in get_channels():
             if c.get("name") == name:
                 return c["id"], _channel_type(c)
         raise ValueError(f"channel #{name} not found")
@@ -105,19 +191,18 @@ def resolve_channel(name_or_id: str) -> tuple[str, str | None]:
                 u.get("name", "").lower(),
                 u.get("display_name", "").lower(),
             ):
-                # Open a DM channel
-                from agent_kit.slack.api import api_get
-
-                resp = api_get("conversations.open", {"users": uid})
+                resp = api_post("conversations.open", {"users": uid})
                 ch = resp.get("channel", {})
                 return ch["id"], "im"
         raise ValueError(f"user @{username} not found")
 
-    # Raw ID — look up type from cache if available
-    channels = get_channels(include_dms=True, include_group_dms=True)
-    for c in channels:
+    # Raw ID — check channels then DMs
+    for c in get_channels():
         if c["id"] == name_or_id:
             return c["id"], _channel_type(c)
+    for d in get_dms(include_group=True):
+        if d["id"] == name_or_id:
+            return d["id"], _channel_type(d)
     return name_or_id, None
 
 

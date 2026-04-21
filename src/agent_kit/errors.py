@@ -78,7 +78,12 @@ def _handle(e: BaseException) -> None:
             print("Error: authentication failed (check credentials)", file=sys.stderr)
             sys.exit(2)
         if status == 429:
-            print("Error: rate limit exceeded, try again later", file=sys.stderr)
+            retry_after = e.response.headers.get("Retry-After", "unknown")
+            body = e.response.text[:500]
+            print(
+                f"Error: rate limit exceeded — {e} | retry-after: {retry_after}s | body: {body}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         print(f"Error: HTTP {status}: {e.response.text}", file=sys.stderr)
         sys.exit(1)
