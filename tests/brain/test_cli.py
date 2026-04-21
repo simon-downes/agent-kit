@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from agent_kit.brain.client import ENTITY_DIRS, RAW_DIRS
+from agent_kit.brain.client import ENTITY_DIRS, RAW_DIRS, BrainClient
 from agent_kit.brain.cli import brain
 
 
@@ -26,19 +26,22 @@ def _setup_brain(tmp_path, contexts=None):
 @pytest.fixture(autouse=True)
 def _patch_config(tmp_path):
     cfg = {"brain": {"dir": str(tmp_path), "contexts": {}}, "project_dir": "~/dev"}
-    with patch("agent_kit.brain.cli.load_config", return_value=cfg):
+    with (
+        patch("agent_kit.brain.cli.load_config", return_value=cfg),
+        patch("agent_kit.brain.cli._get_client", return_value=BrainClient(tmp_path)),
+    ):
         yield cfg
 
 
 class TestInitCommand:
-    @patch("agent_kit.brain.client.subprocess.run")
+    @patch("agent_kit.brain.git.subprocess.run")
     def test_init_all(self, mock_run, cli_runner, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         result = cli_runner.invoke(brain, ["init"])
         assert result.exit_code == 0
         assert "shared" in result.output or "created" in result.output
 
-    @patch("agent_kit.brain.client.subprocess.run")
+    @patch("agent_kit.brain.git.subprocess.run")
     def test_init_specific_context(self, mock_run, cli_runner, tmp_path):
         mock_run.return_value = MagicMock(returncode=0, stderr="")
         result = cli_runner.invoke(brain, ["init", "work"])
@@ -102,7 +105,7 @@ class TestSearchCommand:
         idx = {"contacts": {"alice": {"name": "Alice", "path": "contacts/alice.md", "summary": "", "tags": []}}}
         (tmp_path / "shared" / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "shared" / "contacts" / "alice.md").write_text("Alice")
-        with patch("agent_kit.brain.client._rg_search", return_value=[]):
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
             result = cli_runner.invoke(brain, ["search", "alice"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -114,7 +117,7 @@ class TestSearchCommand:
         idx = {"contacts": {"alice": {"name": "Alice", "path": "contacts/alice.md", "summary": "", "tags": []}}}
         (tmp_path / "shared" / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "shared" / "contacts" / "alice.md").write_text("Alice")
-        with patch("agent_kit.brain.client._rg_search", return_value=[]):
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
             result = cli_runner.invoke(brain, ["search", "alice", "--context", "shared"])
         assert result.exit_code == 0
 
@@ -137,7 +140,7 @@ class TestReindexCommand:
 
 
 class TestCommitCommand:
-    @patch("agent_kit.brain.client.subprocess.run")
+    @patch("agent_kit.brain.git.subprocess.run")
     def test_commit(self, mock_run, cli_runner, tmp_path):
         _setup_brain(tmp_path)
         mock_run.side_effect = [
@@ -150,7 +153,7 @@ class TestCommitCommand:
         assert result.exit_code == 0
         assert "abc1234" in result.output
 
-    @patch("agent_kit.brain.client.subprocess.run")
+    @patch("agent_kit.brain.git.subprocess.run")
     def test_nothing_to_commit(self, mock_run, cli_runner, tmp_path):
         _setup_brain(tmp_path)
         mock_run.return_value = MagicMock(returncode=0, stdout="")
@@ -179,7 +182,7 @@ class TestProjectCommand:
 class TestStatusCommand:
     def test_overall_status(self, cli_runner, tmp_path):
         _setup_brain(tmp_path)
-        with patch("agent_kit.brain.client.subprocess.run") as mock_run:
+        with patch("agent_kit.brain.git.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="")
             result = cli_runner.invoke(brain, ["status"])
         assert result.exit_code == 0
@@ -188,7 +191,7 @@ class TestStatusCommand:
 
     def test_context_status(self, cli_runner, tmp_path):
         _setup_brain(tmp_path)
-        with patch("agent_kit.brain.client.subprocess.run") as mock_run:
+        with patch("agent_kit.brain.git.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="")
             result = cli_runner.invoke(brain, ["status", "shared"])
         assert result.exit_code == 0
@@ -200,7 +203,7 @@ class TestValidateCommand:
     def test_validate_all(self, cli_runner, tmp_path):
         _setup_brain(tmp_path)
         (tmp_path / "shared" / "index.yaml").write_text(yaml.dump({}))
-        with patch("agent_kit.brain.client.subprocess.run") as mock_run:
+        with patch("agent_kit.brain.git.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="git@host:repo\n")
             result = cli_runner.invoke(brain, ["validate"])
         assert result.exit_code == 0
@@ -212,7 +215,6 @@ class TestValidateCommand:
 
     def test_validate_errors_exit_1(self, cli_runner, tmp_path):
         _setup_brain(tmp_path)
-        # Invalid index entry triggers error findings
         idx = {"contacts": {"alice": "not a mapping"}}
         (tmp_path / "shared" / "index.yaml").write_text(yaml.dump(idx))
         result = cli_runner.invoke(brain, ["validate", "shared"])

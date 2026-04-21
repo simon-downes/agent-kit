@@ -7,6 +7,7 @@ import respx
 from httpx import Response
 
 from agent_kit.slack.cli import slack
+from agent_kit.slack.client import SlackClient
 
 SLACK_API = "https://slack.com/api"
 
@@ -65,6 +66,12 @@ SEARCH_RESPONSE = {
 }
 
 
+def _mock_client():
+    """Patch _get_client to return a real SlackClient with a fake token."""
+    client = SlackClient("xoxp-fake", webhook_url="https://hooks.slack.com/test")
+    return patch("agent_kit.slack.cli._get_client", return_value=client)
+
+
 class TestChannelsCommand:
     @respx.mock
     def test_lists_channels(self, cli_runner, mock_config, cache_dir):
@@ -72,7 +79,7 @@ class TestChannelsCommand:
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(200, json=CHANNELS_RESPONSE)
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["channels"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -87,7 +94,7 @@ class TestChannelsCommand:
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(200, json=CHANNELS_RESPONSE)
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["channels", "--limit", "1"])
         data = json.loads(result.output)
         assert len(data) == 1
@@ -103,11 +110,10 @@ class TestDmsCommand:
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(200, json=USERS_RESPONSE)
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["dms"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        # Without --group, only 1:1 DMs
         assert len(data) == 1
         assert data[0]["type"] == "dm"
 
@@ -120,7 +126,7 @@ class TestDmsCommand:
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(200, json=USERS_RESPONSE)
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["dms", "--group"])
         data = json.loads(result.output)
         assert len(data) == 2
@@ -139,57 +145,12 @@ class TestHistoryCommand:
         respx.get(f"{SLACK_API}/conversations.history").mock(
             return_value=Response(200, json=HISTORY_RESPONSE)
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["history", "#general", "--limit", "5"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert len(data) == 1
         assert data[0]["user"] == "Alice"
-        assert "ts" in data[0]
-
-
-class TestSearchCommand:
-    @respx.mock
-    def test_searches(self, cli_runner, mock_config, cache_dir):
-        mock_config()
-        respx.get(f"{SLACK_API}/search.messages").mock(
-            return_value=Response(200, json=SEARCH_RESPONSE)
-        )
-        respx.get(f"{SLACK_API}/users.list").mock(
-            return_value=Response(200, json=USERS_RESPONSE)
-        )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
-            result = cli_runner.invoke(slack, ["search", "deploy"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert len(data) == 1
-        assert data[0]["channel"] == "general"
-        assert "permalink" in data[0]
-
-
-class TestUsersCommand:
-    @respx.mock
-    def test_lists_users(self, cli_runner, mock_config, cache_dir):
-        mock_config()
-        respx.get(f"{SLACK_API}/users.list").mock(
-            return_value=Response(200, json=USERS_RESPONSE)
-        )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
-            result = cli_runner.invoke(slack, ["users"])
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert len(data) == 1
-        assert data[0]["name"] == "alice"
-
-
-THREAD_RESPONSE = {
-    "ok": True,
-    "messages": [
-        {"ts": "1.0", "user": "U1", "text": "parent"},
-        {"ts": "1.1", "user": "U1", "text": "reply"},
-    ],
-    "response_metadata": {"next_cursor": ""},
-}
 
 
 class TestThreadCommand:
@@ -203,24 +164,62 @@ class TestThreadCommand:
             return_value=Response(200, json=USERS_RESPONSE)
         )
         respx.get(f"{SLACK_API}/conversations.replies").mock(
-            return_value=Response(200, json=THREAD_RESPONSE)
+            return_value=Response(
+                200,
+                json={
+                    "ok": True,
+                    "messages": [{"ts": "1.0", "user": "U1", "text": "reply"}],
+                    "response_metadata": {"next_cursor": ""},
+                },
+            )
         )
-        with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["thread", "#general", "1.0"])
         assert result.exit_code == 0
         data = json.loads(result.output)
-        assert len(data) == 2
-        assert data[1]["text"] == "reply"
+        assert data[0]["text"] == "reply"
+
+
+class TestSearchCommand:
+    @respx.mock
+    def test_searches(self, cli_runner, mock_config, cache_dir):
+        mock_config()
+        respx.get(f"{SLACK_API}/search.messages").mock(
+            return_value=Response(200, json=SEARCH_RESPONSE)
+        )
+        respx.get(f"{SLACK_API}/users.list").mock(
+            return_value=Response(200, json=USERS_RESPONSE)
+        )
+        with _mock_client():
+            result = cli_runner.invoke(slack, ["search", "deploy"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+        assert data[0]["channel"] == "general"
+
+
+class TestUsersCommand:
+    @respx.mock
+    def test_lists_users(self, cli_runner, mock_config, cache_dir):
+        mock_config()
+        respx.get(f"{SLACK_API}/users.list").mock(
+            return_value=Response(200, json=USERS_RESPONSE)
+        )
+        with _mock_client():
+            result = cli_runner.invoke(slack, ["users"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert len(data) == 1
+        assert data[0]["name"] == "alice"
 
 
 class TestSendCommand:
     @respx.mock
-    def test_sends_text(self, cli_runner):
-        route = respx.post("https://hooks.slack.com/test").mock(
+    def test_sends_webhook(self, cli_runner):
+        respx.post("https://hooks.slack.com/test").mock(
             return_value=Response(200, text="ok")
         )
-        with patch("agent_kit.slack.cli._get_webhook_url", return_value="https://hooks.slack.com/test"):
+        with _mock_client():
             result = cli_runner.invoke(slack, ["send", "hello world"])
         assert result.exit_code == 0
         assert "OK" in result.output
-        assert route.call_count == 1

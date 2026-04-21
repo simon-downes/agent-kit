@@ -6,20 +6,7 @@ import sys
 import click
 
 from agent_kit.errors import AuthError, handle_errors, output
-from agent_kit.jira.client import (
-    JiraClient,
-    attach_file,
-    create_comment,
-    create_issue,
-    get_comments,
-    get_issue,
-    get_project,
-    get_projects,
-    get_statuses,
-    search_issues,
-    transition_issue,
-    update_issue,
-)
+from agent_kit.jira.client import JiraClient
 from agent_kit.jira.resolve import resolve_assignee, resolve_transition
 
 
@@ -56,7 +43,7 @@ def jira() -> None:
 @handle_errors
 def projects(limit: int) -> None:
     """List projects."""
-    output(get_projects(_get_client(), limit=limit))
+    output(_get_client().get_projects(limit=limit))
 
 
 @jira.command()
@@ -64,7 +51,7 @@ def projects(limit: int) -> None:
 @handle_errors
 def project(key_or_id: str) -> None:
     """Get project details including issue types."""
-    output(get_project(_get_client(), key_or_id))
+    output(_get_client().get_project(key_or_id))
 
 
 @jira.command()
@@ -72,7 +59,7 @@ def project(key_or_id: str) -> None:
 @handle_errors
 def statuses(project_key: str) -> None:
     """List statuses for a project, grouped by issue type."""
-    output(get_statuses(_get_client(), project_key))
+    output(_get_client().get_statuses(project_key))
 
 
 @jira.command()
@@ -103,8 +90,7 @@ def issues(
 ) -> None:
     """Search issues with filters or JQL."""
     output(
-        search_issues(
-            _get_client(),
+        _get_client().search_issues(
             jql=jql,
             project=project_key,
             status=status,
@@ -125,7 +111,7 @@ def issues(
 @handle_errors
 def issue(key: str) -> None:
     """Get issue details by key (e.g. PLAT-123)."""
-    output(get_issue(_get_client(), key))
+    output(_get_client().get_issue(key))
 
 
 @jira.command("create-issue")
@@ -155,8 +141,7 @@ def create_issue_cmd(
     assignee_id = resolve_assignee(client, assignee) if assignee else None
 
     output(
-        create_issue(
-            client,
+        client.create_issue(
             project_key=project_key,
             summary=summary,
             issue_type=issue_type,
@@ -193,8 +178,7 @@ def update_issue_cmd(
     assignee_id = resolve_assignee(client, assignee) if assignee else None
 
     output(
-        update_issue(
-            client,
+        client.update_issue(
             key,
             summary=summary,
             description=description,
@@ -213,7 +197,7 @@ def transition(key: str, status: str) -> None:
     """Transition an issue to a new status."""
     client = _get_client()
     transition_id = resolve_transition(client, key, status)
-    output(transition_issue(client, key, transition_id=transition_id))
+    output(client.transition_issue(key, transition_id=transition_id))
 
 
 @jira.command()
@@ -221,7 +205,7 @@ def transition(key: str, status: str) -> None:
 @handle_errors
 def comments(key: str) -> None:
     """List comments on an issue."""
-    output(get_comments(_get_client(), key))
+    output(_get_client().get_comments(key))
 
 
 @jira.command("comment")
@@ -238,7 +222,7 @@ def comment_cmd(key: str, message: str | None) -> None:
     if not message:
         raise ValueError("empty comment message")
 
-    output(create_comment(_get_client(), key, body=message))
+    output(_get_client().create_comment(key, body=message))
 
 
 @jira.command()
@@ -247,4 +231,4 @@ def comment_cmd(key: str, message: str | None) -> None:
 @handle_errors
 def attach(key: str, file_path: str) -> None:
     """Attach a file to an issue."""
-    output(attach_file(_get_client(), key, file_path))
+    output(_get_client().attach_file(key, file_path))

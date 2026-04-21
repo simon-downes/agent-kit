@@ -2,12 +2,12 @@
 
 import json
 import time
-from unittest.mock import patch
 
 import pytest
 import respx
 from httpx import Response
 
+from agent_kit.slack.client import SlackClient
 from agent_kit.slack.resolve import (
     CACHE_TTL,
     get_channels,
@@ -54,10 +54,9 @@ SAMPLE_USERS = [
 ]
 
 
-@pytest.fixture(autouse=True)
-def _fake_token():
-    with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
-        yield
+@pytest.fixture
+def client():
+    return SlackClient("xoxp-fake")
 
 
 class TestFileCache:
@@ -71,7 +70,6 @@ class TestFileCache:
         from agent_kit.slack.resolve import _read_cache, _write_cache
 
         _write_cache("test", [1])
-        # Backdate the timestamp
         path = cache_dir / "slack-test.json"
         data = json.loads(path.read_text())
         data["ts"] = time.time() - CACHE_TTL - 1
@@ -93,82 +91,82 @@ class TestFileCache:
 
 class TestGetUsers:
     @respx.mock
-    def test_fetches_and_filters(self, cache_dir):
+    def test_fetches_and_filters(self, client, cache_dir):
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": SAMPLE_USERS, "response_metadata": {"next_cursor": ""}},
             )
         )
-        users = get_users()
-        assert "U1" in users  # active user
-        assert "U2" not in users  # deleted
-        assert "UBOT" not in users  # bot
+        users = get_users(client)
+        assert "U1" in users
+        assert "U2" not in users
+        assert "UBOT" not in users
 
     @respx.mock
-    def test_uses_file_cache(self, cache_dir):
+    def test_uses_file_cache(self, client, cache_dir):
         route = respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": SAMPLE_USERS, "response_metadata": {"next_cursor": ""}},
             )
         )
-        get_users()
-        get_users(no_cache=False)  # should hit cache
+        get_users(client)
+        get_users(client, no_cache=False)
         assert route.call_count == 1
 
     @respx.mock
-    def test_no_cache_bypasses(self, cache_dir):
+    def test_no_cache_bypasses(self, client, cache_dir):
         route = respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": SAMPLE_USERS, "response_metadata": {"next_cursor": ""}},
             )
         )
-        get_users()
-        get_users(no_cache=True)
+        get_users(client)
+        get_users(client, no_cache=True)
         assert route.call_count == 2
 
 
 class TestResolveUserName:
     @respx.mock
-    def test_resolves_display_name(self, cache_dir):
+    def test_resolves_display_name(self, client, cache_dir):
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": SAMPLE_USERS, "response_metadata": {"next_cursor": ""}},
             )
         )
-        assert resolve_user_name("U1") == "Alice"
+        assert resolve_user_name(client, "U1") == "Alice"
 
     @respx.mock
-    def test_returns_id_for_unknown(self, cache_dir):
+    def test_returns_id_for_unknown(self, client, cache_dir):
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": [], "response_metadata": {"next_cursor": ""}},
             )
         )
-        assert resolve_user_name("UUNKNOWN") == "UUNKNOWN"
+        assert resolve_user_name(client, "UUNKNOWN") == "UUNKNOWN"
 
 
 class TestSearchUsers:
     @respx.mock
-    def test_partial_match(self, cache_dir):
+    def test_partial_match(self, client, cache_dir):
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
                 json={"ok": True, "members": SAMPLE_USERS, "response_metadata": {"next_cursor": ""}},
             )
         )
-        results = search_users("ali")
+        results = search_users(client, "ali")
         assert len(results) == 1
         assert results[0]["name"] == "alice"
 
 
 class TestGetChannels:
     @respx.mock
-    def test_fetches_channels(self, cache_dir):
+    def test_fetches_channels(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -179,11 +177,11 @@ class TestGetChannels:
                 },
             )
         )
-        chs = get_channels()
+        chs = get_channels(client)
         assert len(chs) == 2
 
     @respx.mock
-    def test_caches_to_file(self, cache_dir):
+    def test_caches_to_file(self, client, cache_dir):
         route = respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -194,14 +192,14 @@ class TestGetChannels:
                 },
             )
         )
-        get_channels()
-        get_channels()
+        get_channels(client)
+        get_channels(client)
         assert route.call_count == 1
 
 
 class TestGetDms:
     @respx.mock
-    def test_filters_group_dms_by_default(self, cache_dir):
+    def test_filters_group_dms_by_default(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -212,12 +210,12 @@ class TestGetDms:
                 },
             )
         )
-        dms = get_dms()
-        assert len(dms) == 1
-        assert dms[0]["id"] == "D1"
+        dms_list = get_dms(client)
+        assert len(dms_list) == 1
+        assert dms_list[0]["id"] == "D1"
 
     @respx.mock
-    def test_includes_group_dms(self, cache_dir):
+    def test_includes_group_dms(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -228,13 +226,13 @@ class TestGetDms:
                 },
             )
         )
-        dms = get_dms(include_group=True)
-        assert len(dms) == 2
+        dms_list = get_dms(client, include_group=True)
+        assert len(dms_list) == 2
 
 
 class TestResolveChannel:
     @respx.mock
-    def test_hash_name(self, cache_dir):
+    def test_hash_name(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -245,12 +243,12 @@ class TestResolveChannel:
                 },
             )
         )
-        channel_id, ch_type = resolve_channel("#general")
+        channel_id, ch_type = resolve_channel(client, "#general")
         assert channel_id == "C1"
         assert ch_type == "public"
 
     @respx.mock
-    def test_hash_name_not_found(self, cache_dir):
+    def test_hash_name_not_found(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -258,10 +256,10 @@ class TestResolveChannel:
             )
         )
         with pytest.raises(ValueError, match="not found"):
-            resolve_channel("#nonexistent")
+            resolve_channel(client, "#nonexistent")
 
     @respx.mock
-    def test_at_user(self, cache_dir):
+    def test_at_user(self, client, cache_dir):
         respx.get(f"{SLACK_API}/users.list").mock(
             return_value=Response(
                 200,
@@ -271,12 +269,12 @@ class TestResolveChannel:
         respx.post(f"{SLACK_API}/conversations.open").mock(
             return_value=Response(200, json={"ok": True, "channel": {"id": "D99"}})
         )
-        channel_id, ch_type = resolve_channel("@alice")
+        channel_id, ch_type = resolve_channel(client, "@alice")
         assert channel_id == "D99"
         assert ch_type == "im"
 
     @respx.mock
-    def test_raw_id_from_channels(self, cache_dir):
+    def test_raw_id_from_channels(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(
                 200,
@@ -287,24 +285,18 @@ class TestResolveChannel:
                 },
             )
         )
-        channel_id, ch_type = resolve_channel("C2")
+        channel_id, ch_type = resolve_channel(client, "C2")
         assert channel_id == "C2"
         assert ch_type == "private"
 
     @respx.mock
-    def test_raw_id_not_found_returns_fallback(self, cache_dir):
+    def test_raw_id_not_found_returns_fallback(self, client, cache_dir):
         respx.get(f"{SLACK_API}/conversations.list").mock(
-            side_effect=[
-                Response(
-                    200,
-                    json={"ok": True, "channels": [], "response_metadata": {"next_cursor": ""}},
-                ),
-                Response(
-                    200,
-                    json={"ok": True, "channels": [], "response_metadata": {"next_cursor": ""}},
-                ),
-            ]
+            return_value=Response(
+                200,
+                json={"ok": True, "channels": [], "response_metadata": {"next_cursor": ""}},
+            )
         )
-        channel_id, ch_type = resolve_channel("CUNKNOWN")
+        channel_id, ch_type = resolve_channel(client, "CUNKNOWN")
         assert channel_id == "CUNKNOWN"
         assert ch_type is None

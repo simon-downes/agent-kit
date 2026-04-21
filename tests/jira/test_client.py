@@ -4,24 +4,7 @@ import pytest
 import respx
 from httpx import Response
 
-from agent_kit.jira.client import (
-    JiraClient,
-    adf_to_text,
-    attach_file as attach_file_fn,
-    create_comment,
-    create_issue,
-    get_comments,
-    get_issue,
-    get_project,
-    get_projects,
-    get_statuses,
-    get_transitions,
-    search_issues,
-    search_users,
-    text_to_adf,
-    transition_issue,
-    update_issue,
-)
+from agent_kit.jira.client import JiraClient, adf_to_text, text_to_adf
 from agent_kit.jira.resolve import resolve_assignee, resolve_transition
 
 BASE_URL = "https://api.atlassian.com/ex/jira/cloud123/rest/api/3"
@@ -261,7 +244,7 @@ class TestGetProjects:
                 json={"values": [{"id": "1", "key": "PLAT", "name": "Platform", "projectTypeKey": "software"}]},
             )
         )
-        result = get_projects(_client())
+        result = _client().get_projects()
         assert len(result) == 1
         assert result[0]["key"] == "PLAT"
 
@@ -281,7 +264,7 @@ class TestGetProject:
                 },
             )
         )
-        result = get_project(_client(), "PLAT")
+        result = _client().get_project("PLAT")
         assert result["key"] == "PLAT"
         assert result["issueTypes"][0]["name"] == "Bug"
 
@@ -300,7 +283,7 @@ class TestGetStatuses:
                 ],
             )
         )
-        result = get_statuses(_client(), "PLAT")
+        result = _client().get_statuses("PLAT")
         assert result[0]["issueType"] == "Bug"
         assert len(result[0]["statuses"]) == 2
 
@@ -316,7 +299,7 @@ class TestSearchIssues:
                 200, json={"issues": [SAMPLE_ISSUE], "isLast": True}
             )
         )
-        result = search_issues(_client(), project="PLAT", limit=10)
+        result = _client().search_issues(project="PLAT", limit=10)
         assert len(result) == 1
         assert result[0]["key"] == "PLAT-1"
 
@@ -341,7 +324,7 @@ class TestSearchIssues:
                 ),
             ]
         )
-        result = search_issues(_client(), project="PLAT", limit=10)
+        result = _client().search_issues(project="PLAT", limit=10)
         assert len(result) == 2
 
     @respx.mock
@@ -356,7 +339,7 @@ class TestSearchIssues:
                 },
             )
         )
-        result = search_issues(_client(), project="PLAT", limit=1)
+        result = _client().search_issues(project="PLAT", limit=1)
         assert len(result) == 1
 
     @respx.mock
@@ -364,7 +347,7 @@ class TestSearchIssues:
         route = respx.post(f"{BASE_URL}/search/jql").mock(
             return_value=Response(200, json={"issues": [], "isLast": True})
         )
-        search_issues(_client(), jql="project = PLAT AND sprint in openSprints()")
+        _client().search_issues(jql="project = PLAT AND sprint in openSprints()")
         body = route.calls[0].request.content
         assert b"openSprints" in body
 
@@ -375,7 +358,7 @@ class TestGetIssue:
         respx.get(f"{BASE_URL}/issue/PLAT-1").mock(
             return_value=Response(200, json=SAMPLE_ISSUE_DETAIL)
         )
-        result = get_issue(_client(), "PLAT-1")
+        result = _client().get_issue("PLAT-1")
         assert result["key"] == "PLAT-1"
         assert result["description"] == "Fix the bug"
         assert result["project"] == "PLAT"
@@ -403,7 +386,7 @@ class TestGetIssue:
         respx.get(f"{BASE_URL}/issue/PLAT-2").mock(
             return_value=Response(200, json=issue)
         )
-        result = get_issue(_client(), "PLAT-2")
+        result = _client().get_issue("PLAT-2")
         assert result["status"] is None
         assert result["assignee"] is None
         assert result["description"] == ""
@@ -418,7 +401,7 @@ class TestCreateIssue:
         respx.post(f"{BASE_URL}/issue").mock(
             return_value=Response(200, json={"key": "PLAT-3", "id": "3", "self": "url"})
         )
-        result = create_issue(_client(), project_key="PLAT", summary="New", issue_type="Task")
+        result = _client().create_issue(project_key="PLAT", summary="New", issue_type="Task")
         assert result["key"] == "PLAT-3"
 
     @respx.mock
@@ -426,8 +409,8 @@ class TestCreateIssue:
         route = respx.post(f"{BASE_URL}/issue").mock(
             return_value=Response(200, json={"key": "PLAT-4", "id": "4"})
         )
-        create_issue(
-            _client(), project_key="PLAT", summary="New", issue_type="Task", description="desc"
+        _client().create_issue(
+            project_key="PLAT", summary="New", issue_type="Task", description="desc"
         )
         body = route.calls[0].request.content
         assert b"description" in body
@@ -440,7 +423,7 @@ class TestUpdateIssue:
         respx.get(f"{BASE_URL}/issue/PLAT-1").mock(
             return_value=Response(200, json=SAMPLE_ISSUE_DETAIL)
         )
-        result = update_issue(_client(), "PLAT-1", summary="Updated")
+        result = _client().update_issue("PLAT-1", summary="Updated")
         assert result["key"] == "PLAT-1"
 
 
@@ -458,7 +441,7 @@ class TestTransitionIssue:
         respx.get(f"{BASE_URL}/issue/PLAT-1").mock(
             return_value=Response(200, json=SAMPLE_ISSUE_DETAIL)
         )
-        result = transition_issue(_client(), "PLAT-1", transition_id="t1")
+        result = _client().transition_issue("PLAT-1", transition_id="t1")
         assert result["key"] == "PLAT-1"
 
 
@@ -492,7 +475,7 @@ class TestGetComments:
                 },
             )
         )
-        result = get_comments(_client(), "PLAT-1")
+        result = _client().get_comments("PLAT-1")
         assert len(result) == 1
         assert result[0]["body"] == "Nice"
 
@@ -517,7 +500,7 @@ class TestCreateComment:
                 },
             )
         )
-        result = create_comment(_client(), "PLAT-1", body="Done")
+        result = _client().create_comment("PLAT-1", body="Done")
         assert result["id"] == "c2"
         assert result["body"] == "Done"
 
@@ -537,7 +520,7 @@ class TestSearchUsers:
                 ],
             )
         )
-        result = search_users(_client(), "alice")
+        result = _client().search_users("alice")
         assert len(result) == 1
         assert result[0]["accountId"] == "u1"
 
@@ -615,10 +598,10 @@ class TestAttachFile:
                 json=[{"id": "a1", "filename": "screenshot.png", "size": 8, "content": "url"}],
             )
         )
-        result = attach_file_fn(_client(), "PLAT-1", str(f))
+        result = _client().attach_file("PLAT-1", str(f))
         assert len(result) == 1
         assert result[0]["filename"] == "screenshot.png"
 
     def test_file_not_found(self):
         with pytest.raises(FileNotFoundError, match="not found"):
-            attach_file_fn(_client(), "PLAT-1", "/nonexistent/file.txt")
+            _client().attach_file("PLAT-1", "/nonexistent/file.txt")

@@ -25,25 +25,6 @@ def require_write(config: dict) -> None:
         raise ConfigError("Notion write operations are disabled in config")
 
 
-def _extract_ancestor_ids(text: str) -> list[str]:
-    """Extract ancestor page IDs from MCP response text."""
-    return _ANCESTOR_RE.findall(text)
-
-
-def _in_scope(scope: dict, resource_id: str, text: str) -> bool:
-    """Check if resource or any ancestor is in scope."""
-    pages = scope.get("pages", [])
-    databases = scope.get("databases", [])
-    if not pages and not databases:
-        return True
-    if resource_id in pages or resource_id in databases:
-        return True
-    for ancestor_id in _extract_ancestor_ids(text):
-        if ancestor_id in pages or ancestor_id in databases:
-            return True
-    return False
-
-
 def check_read_scope(config: dict, resource_id: str, text: str) -> None:
     """Raise ScopeError if resource is not in read scope."""
     scope = config.get("notion", {}).get("read", {}).get("scope", {})
@@ -66,41 +47,19 @@ def extract_id(id_or_url: str) -> str:
     return id_or_url
 
 
-def _parse_content(result: Any) -> list[dict[str, Any]]:
-    """Parse MCP tool result into a list of content dicts."""
-    return [c.model_dump() for c in result.content]
-
-
-def _extract_text(content: list[dict[str, Any]]) -> str:
-    """Extract text from MCP content blocks."""
-    parts = []
-    for item in content:
-        text = item.get("text", "")
-        if text:
-            parts.append(text)
-    return "\n\n".join(parts)
-
-
-def _try_parse_json(text: str) -> Any:
-    """Try to parse text as JSON, return original string on failure."""
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return text
-
-
-async def _fetch_raw(session: ClientSession, resource_id: str) -> tuple[str, Any]:
-    """Fetch a resource and return (raw_text, parsed_result).
-
-    raw_text is the inner text content (containing ancestor-path XML),
-    suitable for scope checking.
-    """
-    result = await session.call_tool("notion-fetch", {"id": resource_id})
-    content = _parse_content(result)
-    text = _extract_text(content)
-    parsed = _try_parse_json(text)
-    inner_text = parsed.get("text", text) if isinstance(parsed, dict) else text
-    return inner_text, parsed
+def list_view_names(text: str) -> list[str]:
+    """Extract available view names from database fetch response."""
+    names = []
+    view_pattern = re.compile(r'<view\s+url="[^"]*">\s*(\{.*?\})\s*</view>', re.DOTALL)
+    for match in view_pattern.finditer(text):
+        try:
+            info = json.loads(match.group(1))
+            name = info.get("name", "")
+            if name:
+                names.append(name)
+        except json.JSONDecodeError:
+            pass
+    return names
 
 
 async def fetch_page(
@@ -218,63 +177,6 @@ async def query_database(
     return rows, text
 
 
-def _find_view_url(text: str, view_name: str | None) -> str | None:
-    """Find a view URL from database fetch response text."""
-    view_pattern = re.compile(
-        r'<view\s+url="[{]*(view://[^}"]+)[}]*">\s*(\{.*?\})\s*</view>',
-        re.DOTALL,
-    )
-    for match in view_pattern.finditer(text):
-        url = match.group(1)
-        try:
-            info = json.loads(match.group(2))
-            name = info.get("name", "")
-        except json.JSONDecodeError:
-            name = ""
-        if view_name is None:
-            return url
-        if name.lower() == view_name.lower():
-            return url
-    return None
-
-
-def list_view_names(text: str) -> list[str]:
-    """Extract available view names from database fetch response."""
-    names = []
-    view_pattern = re.compile(r'<view\s+url="[^"]*">\s*(\{.*?\})\s*</view>', re.DOTALL)
-    for match in view_pattern.finditer(text):
-        try:
-            info = json.loads(match.group(1))
-            name = info.get("name", "")
-            if name:
-                names.append(name)
-        except json.JSONDecodeError:
-            pass
-    return names
-
-
-def _apply_filters(
-    rows: list[dict[str, Any]], filters: list[tuple[str, str, str]]
-) -> list[dict[str, Any]]:
-    """Apply post-processing filters. Each filter is (key, op, value)."""
-    result = []
-    for row in rows:
-        match = True
-        for key, op, value in filters:
-            row_val = str(row.get(key, ""))
-            if op == "=" and row_val != value:
-                match = False
-            elif op == "!=" and row_val == value:
-                match = False
-            elif op == "contains" and value.lower() not in row_val.lower():
-                match = False
-            if not match:
-                break
-        if match:
-            result.append(row)
-    return result
-
-
 async def create_page(
     session: ClientSession,
     parent_id: str,
@@ -343,3 +245,100 @@ async def create_comment(
     text = _extract_text(content_blocks)
     parsed = _try_parse_json(text)
     return parsed if isinstance(parsed, dict) else {"content": parsed}
+
+
+# --- Private implementation ---
+
+
+def _extract_ancestor_ids(text: str) -> list[str]:
+    """Extract ancestor page IDs from MCP response text."""
+    return _ANCESTOR_RE.findall(text)
+
+
+def _in_scope(scope: dict, resource_id: str, text: str) -> bool:
+    """Check if resource or any ancestor is in scope."""
+    pages = scope.get("pages", [])
+    databases = scope.get("databases", [])
+    if not pages and not databases:
+        return True
+    if resource_id in pages or resource_id in databases:
+        return True
+    for ancestor_id in _extract_ancestor_ids(text):
+        if ancestor_id in pages or ancestor_id in databases:
+            return True
+    return False
+
+
+def _parse_content(result: Any) -> list[dict[str, Any]]:
+    """Parse MCP tool result into a list of content dicts."""
+    return [c.model_dump() for c in result.content]
+
+
+def _extract_text(content: list[dict[str, Any]]) -> str:
+    """Extract text from MCP content blocks."""
+    parts = []
+    for item in content:
+        text = item.get("text", "")
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
+def _try_parse_json(text: str) -> Any:
+    """Try to parse text as JSON, return original string on failure."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return text
+
+
+async def _fetch_raw(session: ClientSession, resource_id: str) -> tuple[str, Any]:
+    """Fetch a resource and return (raw_text, parsed_result)."""
+    result = await session.call_tool("notion-fetch", {"id": resource_id})
+    content = _parse_content(result)
+    text = _extract_text(content)
+    parsed = _try_parse_json(text)
+    inner_text = parsed.get("text", text) if isinstance(parsed, dict) else text
+    return inner_text, parsed
+
+
+def _find_view_url(text: str, view_name: str | None) -> str | None:
+    """Find a view URL from database fetch response text."""
+    view_pattern = re.compile(
+        r'<view\s+url="[{]*(view://[^}"]+)[}]*">\s*(\{.*?\})\s*</view>',
+        re.DOTALL,
+    )
+    for match in view_pattern.finditer(text):
+        url = match.group(1)
+        try:
+            info = json.loads(match.group(2))
+            name = info.get("name", "")
+        except json.JSONDecodeError:
+            name = ""
+        if view_name is None:
+            return url
+        if name.lower() == view_name.lower():
+            return url
+    return None
+
+
+def _apply_filters(
+    rows: list[dict[str, Any]], filters: list[tuple[str, str, str]]
+) -> list[dict[str, Any]]:
+    """Apply post-processing filters. Each filter is (key, op, value)."""
+    result = []
+    for row in rows:
+        match = True
+        for key, op, value in filters:
+            row_val = str(row.get(key, ""))
+            if op == "=" and row_val != value:
+                match = False
+            elif op == "!=" and row_val == value:
+                match = False
+            elif op == "contains" and value.lower() not in row_val.lower():
+                match = False
+            if not match:
+                break
+        if match:
+            result.append(row)
+    return result

@@ -16,6 +16,7 @@ src/agent_kit/
 ├── config.py           # Config loading (~/.agent-kit/config.yaml), defaults, deep merge
 ├── errors.py           # Exception hierarchy, shared output(), @handle_errors decorator
 ├── mcp.py              # Generic MCP session context manager
+├── project.py          # Project name resolution
 ├── auth/               # Credential management
 │   ├── __init__.py     # Credential store (YAML I/O, file permissions)
 │   ├── cli.py          # Auth subcommands (set, import, login, refresh, status)
@@ -23,38 +24,79 @@ src/agent_kit/
 │   └── providers.yaml  # Bundled OAuth provider definitions
 ├── brain/              # Second brain management
 │   ├── cli.py          # Brain subcommands (search, index, status, validate)
-│   └── client.py       # Context management, search, index queries, validation
-├── notion/             # Notion integration
+│   ├── client.py       # BrainClient class — public interface
+│   ├── index.py        # Private — index/reindex/metadata extraction
+│   ├── search.py       # Private — search ranking, ripgrep integration
+│   └── git.py          # Private — git operations
+├── notion/             # Notion integration (async MCP)
 │   ├── cli.py          # Notion subcommands
-│   ├── client.py       # MCP tool calls, response parsing, scope checks
-│   └── filters.py      # Post-processing filter parsing for query results
+│   ├── client.py       # Async MCP functions, scope checks
+│   └── filters.py      # Post-processing filter parsing
 ├── linear/             # Linear integration
 │   ├── cli.py          # Linear subcommands
-│   ├── client.py       # GraphQL client, queries, mutations
+│   ├── client.py       # LinearClient class — GraphQL queries and mutations
 │   └── resolve.py      # Name → ID resolution (statuses, assignees, labels)
+├── jira/               # Jira integration
+│   ├── cli.py          # Jira subcommands
+│   ├── client.py       # JiraClient class — REST API, ADF conversion
+│   └── resolve.py      # Name → ID resolution (assignees, transitions)
 ├── google/             # Google Workspace integration
 │   ├── cli.py          # Google subcommands (mail, calendar, drive)
-│   ├── auth.py         # Token getter with auto-refresh
-│   ├── mail.py         # Gmail API client
-│   ├── calendar.py     # Calendar API client
-│   └── drive.py        # Drive API client + pandoc conversion
+│   ├── client.py       # GoogleClient class — auth, refresh, public methods
+│   ├── mail.py         # Private — Gmail API implementation
+│   ├── calendar.py     # Private — Calendar API implementation
+│   └── drive.py        # Private — Drive API implementation
 └── slack/              # Slack integration
-    ├── cli.py          # Slack subcommands (channels, history, search, send)
-    ├── client.py       # Webhook HTTP calls
-    ├── api.py          # Web API client (user token, conversations.*)
-    └── resolve.py      # Channel/user resolution and caching
+    ├── cli.py          # Slack subcommands (channels, dms, history, search, send)
+    ├── client.py       # SlackClient class — Web API and webhooks
+    └── resolve.py      # Channel/user resolution and file-based caching
 ```
 
 ## Architecture
 
 ### Layers
 
-Each service module has two layers:
+Each integration has two required files and optional extras:
 
-- **client.py** — API/protocol layer. Makes HTTP/MCP calls, parses responses, enforces
-  scope. Raises exceptions on errors. Never calls `sys.exit()`, never formats output.
-- **cli.py** — CLI layer. Click commands that call client functions, format output, and
-  handle user input (stdin, arguments). Error handling is via the `@handle_errors` decorator.
+- **client.py** — Client class as the public interface. All API methods are class methods.
+  Public methods above the `# --- Private implementation ---` marker, private below.
+  Never calls `sys.exit()`, never formats output.
+- **cli.py** — Click commands that construct the client via `_get_client()`, call methods,
+  and format output. Error handling via `@handle_errors`. No business logic.
+- **resolve.py** — Optional. Name→ID resolution and caching when needed (Slack, Linear, Jira).
+
+### Client Class Pattern
+
+Every HTTP integration has a client class in `client.py`:
+
+```python
+"""Service description."""
+
+class FooClient:
+    """Client for Foo API."""
+
+    def __init__(self, token: str):
+        self._token = token
+
+    # --- Public interface ---
+
+    def get_things(self, *, limit: int = 50) -> list[dict]: ...
+    def get_thing(self, identifier: str) -> dict: ...
+    def create_thing(self, *, title: str) -> dict: ...
+
+    # --- Private implementation ---
+
+    def _request(self, method: str, path: str, **kwargs) -> dict: ...
+    def _paginate(self, ...) -> list: ...
+    def _format_thing(self, raw: dict) -> dict: ...
+```
+
+The class holds state (token, HTTP client) — no module-level globals for auth.
+Implementation can live in the class or in separate private modules (e.g. Google
+delegates to mail.py, calendar.py, drive.py; Brain delegates to index.py, search.py, git.py).
+
+**Exception:** Notion uses async MCP, not HTTP. It uses async module functions with
+`ClientSession` passed as a parameter. Same public/private layout convention applies.
 
 ### Error Handling
 
@@ -138,15 +180,19 @@ Linear and Slack are synchronous (plain httpx).
 ## Adding a New Service
 
 1. Create `src/agent_kit/<service>/` with `__init__.py`, `cli.py`, `client.py`
-2. **client.py** — API calls, response parsing. Raise exceptions on errors:
-   - `AuthError` for credential issues
-   - `ValueError` for not-found / validation errors
+2. **client.py** — Client class with public/private split:
+   - Constructor takes credentials (token, API key, etc.)
+   - Public methods above `# --- Private implementation ---` marker
+   - Raise `AuthError` for credential issues, `ValueError` for not-found/validation
    - Let `httpx.HTTPStatusError` propagate for HTTP errors
 3. **cli.py** — Click subcommand group with `@handle_errors` on every command
+   - `_get_client()` constructs the client from credential store
+   - Commands are thin: construct client → call method → `output()` result
 4. Register the group in `src/agent_kit/cli.py`: `main.add_command(<service>)`
 5. Add credential config to `DEFAULT_CONFIG` in `config.py` under `auth`
-6. Add `docs/<service>.md` with full command reference
-7. Add summary to `README.md` tools section
+6. Add tests in `tests/<service>/` (test_client.py, test_cli.py)
+7. Add `docs/<service>.md` with full command reference
+8. Add summary to `README.md` tools section
 
 ### Credential getter pattern
 
@@ -177,6 +223,22 @@ def require_write(config: dict) -> None:
 2. Add the Click command in `cli.py` with `@handle_errors`
 3. Gate writes with `require_write()`, reads with `require_read()` if applicable
 4. Update `docs/<service>.md`
+
+## Testing
+
+```bash
+uv run pytest tests/ -v
+```
+
+Tests mock all external dependencies — no network or credentials required.
+
+- **respx** for httpx-based integrations (Slack, Linear, Jira, Google)
+- **AsyncMock** for Notion MCP sessions
+- **unittest.mock.patch** for subprocess (Brain git/rg) and filesystem
+- **tmp_path** for cache and credential file tests
+
+Shared fixtures in `tests/conftest.py`: `mock_config`, `mock_credentials`, `cache_dir`,
+`cli_runner`. Module globals are auto-reset between tests.
 
 ## Code Style
 

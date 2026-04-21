@@ -61,10 +61,8 @@ def _reset_module_globals():
     """Reset module-level caches between tests."""
     yield
     # Slack
-    import agent_kit.slack.api as slack_api
     import agent_kit.slack.resolve as slack_resolve
 
-    slack_api._cached_token = None
     slack_resolve._cache_dir = None
     slack_resolve._user_cache = None
     slack_resolve._channel_cache = None

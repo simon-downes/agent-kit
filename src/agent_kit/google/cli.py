@@ -2,16 +2,31 @@
 
 import click
 
-from agent_kit.errors import handle_errors, output
-from agent_kit.google.auth import require_service
-from agent_kit.google.calendar import get_event, get_today, get_upcoming
+from agent_kit.config import load_config
+from agent_kit.errors import ConfigError, handle_errors, output
+
+
+def require_service(service: str) -> None:
+    """Check that a Google service is enabled in config."""
+    config = load_config()
+    enabled = config.get("google", {}).get(service, {}).get("enabled", True)
+    if not enabled:
+        raise ConfigError(f"Google {service} is disabled in config")
+
+
+def _get_client():
+    """Create a GoogleClient from the credential store."""
+    from agent_kit.auth import get_field
+    from agent_kit.google.client import GoogleClient
+
+    fields = ("access_token", "expires_at", "refresh_token", "client_id", "client_secret")
+    creds = {f: get_field("google", f) for f in fields}
+    return GoogleClient(creds)
 
 
 def _resolve_inbox() -> str:
     """Resolve the brain raw inbox path from config."""
     from pathlib import Path
-
-    from agent_kit.config import load_config
 
     config = load_config()
     brain_dir = config.get("brain", {}).get("dir", "~/.archie/brain")
@@ -40,9 +55,7 @@ def mail() -> None:
 def search(query: str, limit: int) -> None:
     """Search emails using Gmail query syntax."""
     require_service("mail")
-    from agent_kit.google.mail import search_messages
-
-    output(search_messages(query, limit=limit))
+    output(_get_client().mail_search(query, limit=limit))
 
 
 @mail.command()
@@ -52,9 +65,7 @@ def search(query: str, limit: int) -> None:
 def recent(hours: int, limit: int) -> None:
     """List recent emails."""
     require_service("mail")
-    from agent_kit.google.mail import list_recent
-
-    output(list_recent(hours, limit=limit))
+    output(_get_client().mail_recent(hours, limit=limit))
 
 
 @mail.command()
@@ -63,9 +74,7 @@ def recent(hours: int, limit: int) -> None:
 def unread(limit: int) -> None:
     """List unread emails."""
     require_service("mail")
-    from agent_kit.google.mail import list_unread
-
-    output(list_unread(limit=limit))
+    output(_get_client().mail_unread(limit=limit))
 
 
 @mail.command("read")
@@ -79,10 +88,10 @@ def read_cmd(message_id: str, to_stdout: bool, to_inbox: bool, output_dir: str |
     require_service("mail")
     from pathlib import Path
 
-    from agent_kit.google.mail import get_message, write_message_to_file
+    client = _get_client()
 
     if to_stdout:
-        msg = get_message(message_id)
+        msg = client.mail_read(message_id)
         print(msg["body"])
         return
 
@@ -93,7 +102,7 @@ def read_cmd(message_id: str, to_stdout: bool, to_inbox: bool, output_dir: str |
     else:
         out = Path(".")
 
-    md_path, att_paths = write_message_to_file(message_id, out)
+    md_path, att_paths = client.mail_download(message_id, out)
     result = {"file": str(md_path)}
     if att_paths:
         result["attachments"] = [str(p) for p in att_paths]
@@ -113,7 +122,7 @@ def calendar() -> None:
 def today() -> None:
     """List today's events."""
     require_service("calendar")
-    output(get_today())
+    output(_get_client().calendar_today())
 
 
 @calendar.command()
@@ -122,7 +131,7 @@ def today() -> None:
 def upcoming(days: int) -> None:
     """List upcoming events."""
     require_service("calendar")
-    output(get_upcoming(days))
+    output(_get_client().calendar_upcoming(days))
 
 
 @calendar.command()
@@ -131,7 +140,7 @@ def upcoming(days: int) -> None:
 def event(event_id: str) -> None:
     """Get event details."""
     require_service("calendar")
-    output(get_event(event_id))
+    output(_get_client().calendar_event(event_id))
 
 
 # --- Drive ---
@@ -149,9 +158,7 @@ def drive() -> None:
 def drive_search(query: str, limit: int) -> None:
     """Search files by name or content."""
     require_service("drive")
-    from agent_kit.google.drive import search_files
-
-    output(search_files(query, limit=limit))
+    output(_get_client().drive_search(query, limit=limit))
 
 
 @drive.command("recent")
@@ -161,9 +168,7 @@ def drive_search(query: str, limit: int) -> None:
 def drive_recent(days: int, limit: int) -> None:
     """List recently modified files."""
     require_service("drive")
-    from agent_kit.google.drive import get_recent
-
-    output(get_recent(days, limit=limit))
+    output(_get_client().drive_recent(days, limit=limit))
 
 
 @drive.command("list")
@@ -173,9 +178,7 @@ def drive_recent(days: int, limit: int) -> None:
 def list_cmd(folder_id: str | None, limit: int) -> None:
     """List folder contents."""
     require_service("drive")
-    from agent_kit.google.drive import list_files
-
-    output(list_files(folder_id=folder_id, limit=limit))
+    output(_get_client().drive_list(folder_id=folder_id, limit=limit))
 
 
 @drive.command()
@@ -192,10 +195,10 @@ def fetch(
     require_service("drive")
     from pathlib import Path
 
-    from agent_kit.google.drive import fetch_file, fetch_to_stdout
+    client = _get_client()
 
     if to_stdout:
-        print(fetch_to_stdout(file_id))
+        print(client.drive_fetch_stdout(file_id))
         return
 
     if to_inbox:
@@ -205,5 +208,5 @@ def fetch(
     else:
         out = Path(".")
 
-    path = fetch_file(file_id, out, format_override=fmt)
+    path = client.drive_fetch(file_id, out, format_override=fmt)
     output({"file": str(path)})

@@ -7,25 +7,40 @@ import time
 
 import click
 
-from agent_kit.errors import AuthError, handle_errors, output
-from agent_kit.slack.client import send_message, send_raw
+from agent_kit.config import load_config
+from agent_kit.errors import AuthError, ConfigError, handle_errors, output
+from agent_kit.slack.client import SlackClient
 
 
-def _get_webhook_url() -> str:
-    """Get webhook URL from credential store or environment."""
+def _get_client() -> SlackClient:
+    """Construct SlackClient from credential store."""
     from agent_kit.auth import get_field
 
-    url = get_field("slack", "webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
-    if not url:
-        raise AuthError("no Slack credentials — run 'ak auth set slack webhook_url'")
-    return url
+    token = get_field("slack", "access_token")
+    if not token:
+        raise AuthError("no Slack user token — run 'ak auth login slack'")
+    webhook_url = get_field("slack", "webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
+    return SlackClient(token, webhook_url=webhook_url)
 
 
-def _load_config() -> dict:
-    """Load config once per command."""
-    from agent_kit.config import load_config
+def _require_read(config: dict) -> None:
+    """Check that Slack read is enabled."""
+    if not config.get("slack", {}).get("read", {}).get("enabled", True):
+        raise ConfigError("Slack read operations are disabled in config")
 
-    return load_config()
+
+def _check_channel_scope(config: dict, channel_id: str, channel_type: str | None = None) -> None:
+    """Check if a channel is within the configured scope."""
+    scope = config.get("slack", {}).get("read", {}).get("scope", {})
+    if channel_type == "im" and not scope.get("include_dms", False):
+        raise ConfigError("DM access is disabled in config (set slack.read.scope.include_dms)")
+    if channel_type == "mpim" and not scope.get("include_group_dms", False):
+        raise ConfigError(
+            "Group DM access is disabled in config (set slack.read.scope.include_group_dms)"
+        )
+    allowed = scope.get("channels", [])
+    if allowed and channel_id not in allowed and f"#{channel_id}" not in allowed:
+        raise ConfigError(f"channel {channel_id} is not in the configured scope")
 
 
 @click.group()
@@ -43,13 +58,13 @@ def slack() -> None:
 @handle_errors
 def channels(limit: int, archived: bool, no_cache: bool) -> None:
     """List public and private channels."""
-    from agent_kit.slack.api import require_read
     from agent_kit.slack.resolve import get_channels
 
-    config = _load_config()
-    require_read(config)
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
 
-    chs = get_channels(include_archived=archived, no_cache=no_cache)
+    chs = get_channels(client, include_archived=archived, no_cache=no_cache)
 
     result = []
     for c in chs[:limit]:
@@ -72,13 +87,13 @@ def channels(limit: int, archived: bool, no_cache: bool) -> None:
 @handle_errors
 def dms(limit: int, group: bool, no_cache: bool) -> None:
     """List DM conversations."""
-    from agent_kit.slack.api import require_read
     from agent_kit.slack.resolve import get_dms, resolve_user_name
 
-    config = _load_config()
-    require_read(config)
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
 
-    conversations = get_dms(include_group=group, no_cache=no_cache)
+    conversations = get_dms(client, include_group=group, no_cache=no_cache)
 
     result = []
     for d in conversations[:limit]:
@@ -86,7 +101,7 @@ def dms(limit: int, group: bool, no_cache: bool) -> None:
             name = d.get("name", d["id"])
             dm_type = "group_dm"
         else:
-            name = resolve_user_name(d.get("user", ""))
+            name = resolve_user_name(client, d.get("user", ""))
             dm_type = "dm"
         result.append({"id": d["id"], "name": name, "type": dm_type})
     output(result)
@@ -99,28 +114,23 @@ def dms(limit: int, group: bool, no_cache: bool) -> None:
 @handle_errors
 def history(channel: str, limit: int, since: int) -> None:
     """Read recent messages from a channel or DM."""
-    from agent_kit.slack.api import check_channel_scope, paginated_get, require_read
     from agent_kit.slack.resolve import resolve_channel, resolve_user_name
 
-    config = _load_config()
-    require_read(config)
-    channel_id, channel_type = resolve_channel(channel)
-    check_channel_scope(config, channel_id, channel_type)
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
+    channel_id, channel_type = resolve_channel(client, channel)
+    _check_channel_scope(config, channel_id, channel_type)
 
     oldest = str(time.time() - (since * 3600))
-    results = paginated_get(
-        "conversations.history",
-        "messages",
-        {"channel": channel_id, "oldest": oldest},
-        limit=limit,
-    )
+    results = client.get_history(channel_id, oldest=oldest, limit=limit)
 
     messages = []
     for m in reversed(results):
         messages.append(
             {
                 "ts": m.get("ts"),
-                "user": resolve_user_name(m.get("user", "")),
+                "user": resolve_user_name(client, m.get("user", "")),
                 "text": m.get("text", ""),
                 "thread_ts": m.get("thread_ts") if m.get("reply_count") else None,
                 "reply_count": m.get("reply_count", 0),
@@ -136,25 +146,20 @@ def history(channel: str, limit: int, since: int) -> None:
 @handle_errors
 def thread(channel: str, thread_ts: str, limit: int) -> None:
     """Read thread replies."""
-    from agent_kit.slack.api import check_channel_scope, paginated_get, require_read
     from agent_kit.slack.resolve import resolve_channel, resolve_user_name
 
-    config = _load_config()
-    require_read(config)
-    channel_id, channel_type = resolve_channel(channel)
-    check_channel_scope(config, channel_id, channel_type)
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
+    channel_id, channel_type = resolve_channel(client, channel)
+    _check_channel_scope(config, channel_id, channel_type)
 
-    results = paginated_get(
-        "conversations.replies",
-        "messages",
-        {"channel": channel_id, "ts": thread_ts},
-        limit=limit,
-    )
+    results = client.get_thread(channel_id, thread_ts, limit=limit)
 
     messages = [
         {
             "ts": m.get("ts"),
-            "user": resolve_user_name(m.get("user", "")),
+            "user": resolve_user_name(client, m.get("user", "")),
             "text": m.get("text", ""),
         }
         for m in results
@@ -168,23 +173,19 @@ def thread(channel: str, thread_ts: str, limit: int) -> None:
 @handle_errors
 def search(query: str, limit: int) -> None:
     """Search messages (Slack query syntax, sorted by date)."""
-    from agent_kit.slack.api import api_get, require_read
     from agent_kit.slack.resolve import resolve_user_name
 
-    config = _load_config()
-    require_read(config)
-    limit = min(limit, 100)
-    data = api_get(
-        "search.messages",
-        {"query": query, "count": limit, "sort": "timestamp", "sort_dir": "desc"},
-    )
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
+    data = client.search_messages(query, limit=limit)
 
     matches = data.get("messages", {}).get("matches", [])
     result = [
         {
             "channel": m.get("channel", {}).get("name", ""),
             "ts": m.get("ts"),
-            "user": resolve_user_name(m.get("user", m.get("username", ""))),
+            "user": resolve_user_name(client, m.get("user", m.get("username", ""))),
             "text": m.get("text", ""),
             "permalink": m.get("permalink", ""),
         }
@@ -200,19 +201,19 @@ def search(query: str, limit: int) -> None:
 @handle_errors
 def users(query: str | None, limit: int, no_cache: bool) -> None:
     """List or search workspace users."""
-    from agent_kit.slack.api import require_read
     from agent_kit.slack.resolve import get_users, search_users
 
-    config = _load_config()
-    require_read(config)
+    config = load_config()
+    _require_read(config)
+    client = _get_client()
     if query:
-        result = search_users(query)
+        result = search_users(client, query)
     else:
-        result = list(get_users(no_cache=no_cache).values())
+        result = list(get_users(client, no_cache=no_cache).values())
     output(result[:limit])
 
 
-# --- Write commands (existing webhook) ---
+# --- Write commands ---
 
 
 @slack.command()
@@ -227,14 +228,14 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
     Text can be provided as an argument or piped via stdin.
     Supports mrkdwn formatting.
     """
-    url = _get_webhook_url()
+    client = _get_client()
 
     if use_json:
         raw = sys.stdin.read().strip()
         if not raw:
             raise ValueError("no JSON payload on stdin")
         payload = json.loads(raw)
-        send_raw(url, payload)
+        client.send_webhook_raw(payload)
         print("OK")
         return
 
@@ -255,5 +256,5 @@ def send(text: str | None, header: str | None, fields: tuple[str, ...], use_json
             k, v = f.split("=", 1)
             parsed_fields.append((k, v))
 
-    send_message(url, text, header=header, fields=parsed_fields)
+    client.send_webhook(text, header=header, fields=parsed_fields)
     print("OK")

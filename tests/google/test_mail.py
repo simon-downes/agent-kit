@@ -122,7 +122,7 @@ class TestHtmlToMarkdown:
 
 class TestSearchMessages:
     @respx.mock
-    def test_search(self):
+    def test_search(self, google_client):
         plain = urlsafe_b64encode(b"body text").decode()
         respx.get(f"{GMAIL_API}/messages").mock(
             return_value=Response(200, json={"messages": [{"id": "m1"}]})
@@ -142,6 +142,6 @@ class TestSearchMessages:
                 },
             })
         )
-        result = search_messages("test", limit=5)
+        result = search_messages(google_client, "test", limit=5)
         assert len(result) == 1
         assert result[0]["subject"] == "Test"

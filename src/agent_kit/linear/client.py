@@ -6,51 +6,6 @@ import httpx
 
 API_URL = "https://api.linear.app/graphql"
 
-
-class LinearClient:
-    """Thin wrapper around Linear's GraphQL API."""
-
-    def __init__(self, api_key: str):
-        self._client = httpx.Client(
-            base_url=API_URL,
-            headers={"Authorization": api_key, "Content-Type": "application/json"},
-        )
-
-    def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Execute a GraphQL query and return the data dict."""
-        payload: dict[str, Any] = {"query": query}
-        if variables:
-            payload["variables"] = variables
-
-        resp = self._client.post("", json=payload)
-
-        if resp.status_code == 401:
-            resp.raise_for_status()
-
-        if resp.status_code == 429:
-            raise httpx.HTTPStatusError(
-                "Linear API rate limit exceeded, try again later",
-                request=resp.request,
-                response=resp,
-            )
-
-        body = resp.json()
-
-        if "errors" in body:
-            msgs = "; ".join(e.get("message", str(e)) for e in body["errors"])
-            raise ValueError(f"GraphQL error: {msgs}")
-
-        resp.raise_for_status()
-
-        return body.get("data", {})
-
-    def mutate(self, mutation: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Execute a GraphQL mutation. Same as query, just a semantic alias."""
-        return self.query(mutation, variables)
-
-
-# --- Queries ---
-
 TEAMS_QUERY = """
 query { teams { nodes { id name key } } }
 """
@@ -73,42 +28,6 @@ query Projects($filter: ProjectFilter) {
   }
 }
 """
-
-
-def get_teams(client: LinearClient) -> list[dict[str, Any]]:
-    data = client.query(TEAMS_QUERY)
-    return data["teams"]["nodes"]
-
-
-def get_team(client: LinearClient, id_or_key: str) -> dict[str, Any]:
-    """Fetch team by ID or key. Tries ID first, falls back to key lookup."""
-    try:
-        data = client.query(TEAM_QUERY, {"id": id_or_key})
-        if data.get("team"):
-            return data["team"]
-    except ValueError:
-        pass
-
-    # Fall back to key lookup
-    teams = get_teams(client)
-    for t in teams:
-        if t["key"].lower() == id_or_key.lower():
-            data = client.query(TEAM_QUERY, {"id": t["id"]})
-            return data["team"]
-
-    raise ValueError(f"team '{id_or_key}' not found")
-
-
-def get_projects(client: LinearClient, *, team_key: str | None = None) -> list[dict[str, Any]]:
-    filt: dict[str, Any] | None = None
-    if team_key:
-        team = get_team(client, team_key)
-        filt = {"accessibleTeams": {"id": {"eq": team["id"]}}}
-    data = client.query(PROJECTS_QUERY, {"filter": filt})
-    return data["projects"]["nodes"]
-
-
-# --- Issue queries ---
 
 ISSUES_QUERY = """
 query Issues($filter: IssueFilter, $first: Int, $after: String) {
@@ -140,99 +59,6 @@ query Issue($id: String!) {
   }
 }
 """
-
-
-def _format_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    """Flatten an issue into a clean output dict."""
-    return {
-        "id": issue["id"],
-        "identifier": issue["identifier"],
-        "title": issue["title"],
-        "status": issue.get("state", {}).get("name"),
-        "assignee": (issue.get("assignee") or {}).get("name"),
-        "priority": issue.get("priority"),
-        "labels": [lbl["name"] for lbl in issue.get("labels", {}).get("nodes", [])],
-        "project": (issue.get("project") or {}).get("name"),
-        "createdAt": issue.get("createdAt"),
-        "updatedAt": issue.get("updatedAt"),
-    }
-
-
-def _format_issue_detail(issue: dict[str, Any]) -> dict[str, Any]:
-    """Flatten an issue with full detail."""
-    result = _format_issue(issue)
-    result["description"] = issue.get("description")
-    result["team"] = issue.get("team", {}).get("key")
-    result["comments"] = [
-        {
-            "author": c.get("user", {}).get("name"),
-            "body": c.get("body"),
-            "createdAt": c.get("createdAt"),
-        }
-        for c in issue.get("comments", {}).get("nodes", [])
-    ]
-    return result
-
-
-def get_issues(
-    client: LinearClient,
-    *,
-    team_id: str,
-    status_id: str | None = None,
-    assignee_id: str | None = None,
-    label_id: str | None = None,
-    project_name: str | None = None,
-    created_after: str | None = None,
-    created_before: str | None = None,
-    updated_after: str | None = None,
-    updated_before: str | None = None,
-    limit: int = 50,
-) -> list[dict[str, Any]]:
-    """List issues with server-side filtering."""
-    filt: dict[str, Any] = {"team": {"id": {"eq": team_id}}}
-    if status_id:
-        filt["state"] = {"id": {"eq": status_id}}
-    if assignee_id:
-        filt["assignee"] = {"id": {"eq": assignee_id}}
-    if label_id:
-        filt["labels"] = {"id": {"eq": label_id}}
-    if project_name:
-        filt["project"] = {"name": {"eqIgnoreCase": project_name}}
-    if created_after or created_before:
-        created: dict[str, Any] = {}
-        if created_after:
-            created["gte"] = created_after
-        if created_before:
-            created["lte"] = created_before
-        filt["createdAt"] = created
-    if updated_after or updated_before:
-        updated: dict[str, Any] = {}
-        if updated_after:
-            updated["gte"] = updated_after
-        if updated_before:
-            updated["lte"] = updated_before
-        filt["updatedAt"] = updated
-
-    data = client.query(ISSUES_QUERY, {"filter": filt, "first": min(limit, 50)})
-    results = [_format_issue(i) for i in data["issues"]["nodes"]]
-    while len(results) < limit and data["issues"]["pageInfo"]["hasNextPage"]:
-        cursor = data["issues"]["pageInfo"]["endCursor"]
-        page_size = min(limit - len(results), 50)
-        data = client.query(ISSUES_QUERY, {"filter": filt, "first": page_size, "after": cursor})
-        results.extend(_format_issue(i) for i in data["issues"]["nodes"])
-    return results[:limit]
-
-
-def get_issue(client: LinearClient, identifier: str) -> dict[str, Any]:
-    """Fetch a single issue by identifier (e.g. PLAT-123) or UUID."""
-    data = client.query(ISSUE_QUERY, {"id": identifier})
-    issue = data.get("issue")
-    if not issue:
-        raise ValueError(f"issue '{identifier}' not found")
-    return _format_issue_detail(issue)
-
-
-# --- Mutations ---
 
 ISSUE_CREATE = """
 mutation IssueCreate($input: IssueCreateInput!) {
@@ -279,115 +105,271 @@ mutation FileUpload($contentType: String!, $filename: String!, $size: Int!) {
 """
 
 
-def create_issue(
-    client: LinearClient,
-    *,
-    team_id: str,
-    title: str,
-    description: str | None = None,
-    state_id: str | None = None,
-    assignee_id: str | None = None,
-    priority: int | None = None,
-    label_ids: list[str] | None = None,
-) -> dict[str, Any]:
-    """Create an issue."""
-    inp: dict[str, Any] = {"teamId": team_id, "title": title}
-    if description:
-        inp["description"] = description
-    if state_id:
-        inp["stateId"] = state_id
-    if assignee_id:
-        inp["assigneeId"] = assignee_id
-    if priority is not None:
-        inp["priority"] = priority
-    if label_ids:
-        inp["labelIds"] = label_ids
+class LinearClient:
+    """Client for Linear's GraphQL API."""
 
-    data = client.mutate(ISSUE_CREATE, {"input": inp})
-    return _format_issue(data["issueCreate"]["issue"])
+    def __init__(self, api_key: str):
+        self._client = httpx.Client(
+            base_url=API_URL,
+            headers={"Authorization": api_key, "Content-Type": "application/json"},
+        )
 
+    # --- Public interface ---
 
-def update_issue(
-    client: LinearClient,
-    identifier: str,
-    *,
-    title: str | None = None,
-    description: str | None = None,
-    state_id: str | None = None,
-    assignee_id: str | None = None,
-    priority: int | None = None,
-    label_ids: list[str] | None = None,
-) -> dict[str, Any]:
-    """Update an issue."""
-    inp: dict[str, Any] = {}
-    if title:
-        inp["title"] = title
-    if description:
-        inp["description"] = description
-    if state_id:
-        inp["stateId"] = state_id
-    if assignee_id:
-        inp["assigneeId"] = assignee_id
-    if priority is not None:
-        inp["priority"] = priority
-    if label_ids is not None:
-        inp["labelIds"] = label_ids
+    def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute a GraphQL query and return the data dict."""
+        payload: dict[str, Any] = {"query": query}
+        if variables:
+            payload["variables"] = variables
 
-    data = client.mutate(ISSUE_UPDATE, {"id": identifier, "input": inp})
-    return _format_issue(data["issueUpdate"]["issue"])
+        resp = self._client.post("", json=payload)
 
+        if resp.status_code == 401:
+            resp.raise_for_status()
 
-def get_comments(client: LinearClient, identifier: str) -> list[dict[str, Any]]:
-    """Fetch comments on an issue."""
-    data = client.query(COMMENTS_QUERY, {"id": identifier})
-    issue = data.get("issue")
-    if not issue:
-        raise ValueError(f"issue '{identifier}' not found")
-    return [
-        {
+        if resp.status_code == 429:
+            raise httpx.HTTPStatusError(
+                "Linear API rate limit exceeded, try again later",
+                request=resp.request,
+                response=resp,
+            )
+
+        body = resp.json()
+
+        if "errors" in body:
+            msgs = "; ".join(e.get("message", str(e)) for e in body["errors"])
+            raise ValueError(f"GraphQL error: {msgs}")
+
+        resp.raise_for_status()
+
+        return body.get("data", {})
+
+    def mutate(self, mutation: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Execute a GraphQL mutation. Same as query, just a semantic alias."""
+        return self.query(mutation, variables)
+
+    def get_teams(self) -> list[dict[str, Any]]:
+        data = self.query(TEAMS_QUERY)
+        return data["teams"]["nodes"]
+
+    def get_team(self, id_or_key: str) -> dict[str, Any]:
+        """Fetch team by ID or key. Tries ID first, falls back to key lookup."""
+        try:
+            data = self.query(TEAM_QUERY, {"id": id_or_key})
+            if data.get("team"):
+                return data["team"]
+        except ValueError:
+            pass
+
+        teams = self.get_teams()
+        for t in teams:
+            if t["key"].lower() == id_or_key.lower():
+                data = self.query(TEAM_QUERY, {"id": t["id"]})
+                return data["team"]
+
+        raise ValueError(f"team '{id_or_key}' not found")
+
+    def get_projects(self, *, team_key: str | None = None) -> list[dict[str, Any]]:
+        filt: dict[str, Any] | None = None
+        if team_key:
+            team = self.get_team(team_key)
+            filt = {"accessibleTeams": {"id": {"eq": team["id"]}}}
+        data = self.query(PROJECTS_QUERY, {"filter": filt})
+        return data["projects"]["nodes"]
+
+    def get_issues(
+        self,
+        *,
+        team_id: str,
+        status_id: str | None = None,
+        assignee_id: str | None = None,
+        label_id: str | None = None,
+        project_name: str | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        updated_after: str | None = None,
+        updated_before: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List issues with server-side filtering."""
+        filt: dict[str, Any] = {"team": {"id": {"eq": team_id}}}
+        if status_id:
+            filt["state"] = {"id": {"eq": status_id}}
+        if assignee_id:
+            filt["assignee"] = {"id": {"eq": assignee_id}}
+        if label_id:
+            filt["labels"] = {"id": {"eq": label_id}}
+        if project_name:
+            filt["project"] = {"name": {"eqIgnoreCase": project_name}}
+        if created_after or created_before:
+            created: dict[str, Any] = {}
+            if created_after:
+                created["gte"] = created_after
+            if created_before:
+                created["lte"] = created_before
+            filt["createdAt"] = created
+        if updated_after or updated_before:
+            updated: dict[str, Any] = {}
+            if updated_after:
+                updated["gte"] = updated_after
+            if updated_before:
+                updated["lte"] = updated_before
+            filt["updatedAt"] = updated
+
+        data = self.query(ISSUES_QUERY, {"filter": filt, "first": min(limit, 50)})
+        results = [self._format_issue(i) for i in data["issues"]["nodes"]]
+        while len(results) < limit and data["issues"]["pageInfo"]["hasNextPage"]:
+            cursor = data["issues"]["pageInfo"]["endCursor"]
+            page_size = min(limit - len(results), 50)
+            data = self.query(ISSUES_QUERY, {"filter": filt, "first": page_size, "after": cursor})
+            results.extend(self._format_issue(i) for i in data["issues"]["nodes"])
+        return results[:limit]
+
+    def get_issue(self, identifier: str) -> dict[str, Any]:
+        """Fetch a single issue by identifier (e.g. PLAT-123) or UUID."""
+        data = self.query(ISSUE_QUERY, {"id": identifier})
+        issue = data.get("issue")
+        if not issue:
+            raise ValueError(f"issue '{identifier}' not found")
+        return self._format_issue_detail(issue)
+
+    def create_issue(
+        self,
+        *,
+        team_id: str,
+        title: str,
+        description: str | None = None,
+        state_id: str | None = None,
+        assignee_id: str | None = None,
+        priority: int | None = None,
+        label_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Create an issue."""
+        inp: dict[str, Any] = {"teamId": team_id, "title": title}
+        if description:
+            inp["description"] = description
+        if state_id:
+            inp["stateId"] = state_id
+        if assignee_id:
+            inp["assigneeId"] = assignee_id
+        if priority is not None:
+            inp["priority"] = priority
+        if label_ids:
+            inp["labelIds"] = label_ids
+
+        data = self.mutate(ISSUE_CREATE, {"input": inp})
+        return self._format_issue(data["issueCreate"]["issue"])
+
+    def update_issue(
+        self,
+        identifier: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        state_id: str | None = None,
+        assignee_id: str | None = None,
+        priority: int | None = None,
+        label_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Update an issue."""
+        inp: dict[str, Any] = {}
+        if title:
+            inp["title"] = title
+        if description:
+            inp["description"] = description
+        if state_id:
+            inp["stateId"] = state_id
+        if assignee_id:
+            inp["assigneeId"] = assignee_id
+        if priority is not None:
+            inp["priority"] = priority
+        if label_ids is not None:
+            inp["labelIds"] = label_ids
+
+        data = self.mutate(ISSUE_UPDATE, {"id": identifier, "input": inp})
+        return self._format_issue(data["issueUpdate"]["issue"])
+
+    def get_comments(self, identifier: str) -> list[dict[str, Any]]:
+        """Fetch comments on an issue."""
+        data = self.query(COMMENTS_QUERY, {"id": identifier})
+        issue = data.get("issue")
+        if not issue:
+            raise ValueError(f"issue '{identifier}' not found")
+        return [
+            {
+                "author": c.get("user", {}).get("name"),
+                "body": c.get("body"),
+                "createdAt": c.get("createdAt"),
+            }
+            for c in issue.get("comments", {}).get("nodes", [])
+        ]
+
+    def create_comment(self, identifier: str, *, body: str) -> dict[str, Any]:
+        """Add a comment to an issue."""
+        data = self.mutate(COMMENT_CREATE, {"input": {"issueId": identifier, "body": body}})
+        c = data["commentCreate"]["comment"]
+        return {
+            "id": c["id"],
             "author": c.get("user", {}).get("name"),
-            "body": c.get("body"),
-            "createdAt": c.get("createdAt"),
+            "body": c["body"],
+            "createdAt": c["createdAt"],
         }
-        for c in issue.get("comments", {}).get("nodes", [])
-    ]
 
+    def upload_file(self, filepath: str) -> dict[str, Any]:
+        """Upload a file to Linear's storage. Returns asset URL."""
+        import mimetypes
+        from pathlib import Path
 
-def create_comment(client: LinearClient, identifier: str, *, body: str) -> dict[str, Any]:
-    """Add a comment to an issue."""
-    data = client.mutate(COMMENT_CREATE, {"input": {"issueId": identifier, "body": body}})
-    c = data["commentCreate"]["comment"]
-    return {
-        "id": c["id"],
-        "author": c.get("user", {}).get("name"),
-        "body": c["body"],
-        "createdAt": c["createdAt"],
-    }
+        path = Path(filepath)
+        if not path.exists():
+            raise FileNotFoundError(f"file not found: {filepath}")
 
+        content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        size = path.stat().st_size
 
-def upload_file(client: LinearClient, filepath: str) -> dict[str, Any]:
-    """Upload a file to Linear's storage. Returns asset URL."""
-    import mimetypes
-    from pathlib import Path
+        data = self.mutate(
+            FILE_UPLOAD,
+            {"contentType": content_type, "filename": path.name, "size": size},
+        )
+        upload = data["fileUpload"]["uploadFile"]
 
-    path = Path(filepath)
-    if not path.exists():
-        raise FileNotFoundError(f"file not found: {filepath}")
+        headers = {"Content-Type": content_type, "Cache-Control": "public, max-age=31536000"}
+        for h in upload["headers"]:
+            headers[h["key"]] = h["value"]
 
-    content_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-    size = path.stat().st_size
+        resp = httpx.put(upload["uploadUrl"], content=path.read_bytes(), headers=headers)
+        resp.raise_for_status()
 
-    data = client.mutate(
-        FILE_UPLOAD,
-        {"contentType": content_type, "filename": path.name, "size": size},
-    )
-    upload = data["fileUpload"]["uploadFile"]
+        return {"assetUrl": upload["assetUrl"], "filename": path.name}
 
-    headers = {"Content-Type": content_type, "Cache-Control": "public, max-age=31536000"}
-    for h in upload["headers"]:
-        headers[h["key"]] = h["value"]
+    # --- Private implementation ---
 
-    resp = httpx.put(upload["uploadUrl"], content=path.read_bytes(), headers=headers)
-    resp.raise_for_status()
+    def _format_issue(self, issue: dict[str, Any]) -> dict[str, Any]:
+        """Flatten an issue into a clean output dict."""
+        return {
+            "id": issue["id"],
+            "identifier": issue["identifier"],
+            "title": issue["title"],
+            "status": issue.get("state", {}).get("name"),
+            "assignee": (issue.get("assignee") or {}).get("name"),
+            "priority": issue.get("priority"),
+            "labels": [lbl["name"] for lbl in issue.get("labels", {}).get("nodes", [])],
+            "project": (issue.get("project") or {}).get("name"),
+            "createdAt": issue.get("createdAt"),
+            "updatedAt": issue.get("updatedAt"),
+        }
 
-    return {"assetUrl": upload["assetUrl"], "filename": path.name}
+    def _format_issue_detail(self, issue: dict[str, Any]) -> dict[str, Any]:
+        """Flatten an issue with full detail."""
+        result = self._format_issue(issue)
+        result["description"] = issue.get("description")
+        result["team"] = issue.get("team", {}).get("key")
+        result["comments"] = [
+            {
+                "author": c.get("user", {}).get("name"),
+                "body": c.get("body"),
+                "createdAt": c.get("createdAt"),
+            }
+            for c in issue.get("comments", {}).get("nodes", [])
+        ]
+        return result

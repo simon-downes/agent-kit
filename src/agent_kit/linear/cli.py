@@ -6,19 +6,7 @@ import sys
 import click
 
 from agent_kit.errors import AuthError, handle_errors, output
-from agent_kit.linear.client import (
-    LinearClient,
-    create_comment,
-    create_issue,
-    get_comments,
-    get_issue,
-    get_issues,
-    get_projects,
-    get_team,
-    get_teams,
-    update_issue,
-    upload_file,
-)
+from agent_kit.linear.client import LinearClient
 from agent_kit.linear.resolve import (
     resolve_assignee,
     resolve_labels,
@@ -46,7 +34,7 @@ def linear() -> None:
 @handle_errors
 def teams() -> None:
     """List all teams."""
-    output(get_teams(_get_client()))
+    output(_get_client().get_teams())
 
 
 @linear.command()
@@ -54,7 +42,7 @@ def teams() -> None:
 @handle_errors
 def team(id_or_key: str) -> None:
     """Get team details including workflow states."""
-    output(get_team(_get_client(), id_or_key))
+    output(_get_client().get_team(id_or_key))
 
 
 @linear.command()
@@ -62,7 +50,7 @@ def team(id_or_key: str) -> None:
 @handle_errors
 def projects(team_key: str | None) -> None:
     """List projects."""
-    output(get_projects(_get_client(), team_key=team_key))
+    output(_get_client().get_projects(team_key=team_key))
 
 
 def _resolve_filters(
@@ -109,8 +97,7 @@ def issues(
     resolved = _resolve_filters(client, team_key, status=status, assignee=assignee, label=label)
 
     output(
-        get_issues(
-            client,
+        client.get_issues(
             team_id=resolved["team_id"],
             status_id=resolved.get("status_id"),
             assignee_id=resolved.get("assignee_id"),
@@ -130,7 +117,7 @@ def issues(
 @handle_errors
 def issue(identifier: str) -> None:
     """Get issue details by identifier (e.g. PLAT-123)."""
-    output(get_issue(_get_client(), identifier))
+    output(_get_client().get_issue(identifier))
 
 
 @linear.command("create-issue")
@@ -163,8 +150,7 @@ def create_issue_cmd(
     label_ids = resolve_labels(client, team_key, list(labels)) if labels else None
 
     output(
-        create_issue(
-            client,
+        client.create_issue(
             team_id=team_id,
             title=title,
             description=description,
@@ -203,7 +189,7 @@ def update_issue_cmd(
     # Need team context for name resolution
     team_key: str | None = None
     if status or assignee or labels:
-        detail = get_issue(client, identifier)
+        detail = client.get_issue(identifier)
         team_key = detail.get("team")
         if not team_key:
             raise ValueError("could not determine team for issue")
@@ -213,8 +199,7 @@ def update_issue_cmd(
     label_ids = resolve_labels(client, team_key, list(labels)) if labels and team_key else None
 
     output(
-        update_issue(
-            client,
+        client.update_issue(
             identifier,
             title=title,
             description=description,
@@ -231,7 +216,7 @@ def update_issue_cmd(
 @handle_errors
 def comments(identifier: str) -> None:
     """List comments on an issue."""
-    output(get_comments(_get_client(), identifier))
+    output(_get_client().get_comments(identifier))
 
 
 @linear.command("comment")
@@ -248,7 +233,7 @@ def comment_cmd(identifier: str, message: str | None) -> None:
     if not message:
         raise ValueError("empty comment message")
 
-    output(create_comment(_get_client(), identifier, body=message))
+    output(_get_client().create_comment(identifier, body=message))
 
 
 @linear.command()
@@ -256,4 +241,4 @@ def comment_cmd(identifier: str, message: str | None) -> None:
 @handle_errors
 def upload(file_path: str) -> None:
     """Upload a file to Linear's storage."""
-    output(upload_file(_get_client(), file_path))
+    output(_get_client().upload_file(file_path))

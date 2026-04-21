@@ -1,11 +1,11 @@
 """Name → ID resolution for Linear entities."""
 
-from agent_kit.linear.client import LinearClient, get_team
+from agent_kit.linear.client import LinearClient
 
 
 def resolve_status(client: LinearClient, team_id_or_key: str, name: str) -> str:
     """Resolve a status name to a workflow state ID. Case-insensitive."""
-    team = get_team(client, team_id_or_key)
+    team = client.get_team(team_id_or_key)
     name_lower = name.lower()
     for state in team["states"]["nodes"]:
         if state["name"].lower() == name_lower:
@@ -16,7 +16,7 @@ def resolve_status(client: LinearClient, team_id_or_key: str, name: str) -> str:
 
 def resolve_assignee(client: LinearClient, team_id_or_key: str, name: str) -> str:
     """Resolve an assignee name to a user ID. Case-insensitive partial match."""
-    team = get_team(client, team_id_or_key)
+    team = client.get_team(team_id_or_key)
     name_lower = name.lower()
     for member in team["members"]["nodes"]:
         if name_lower in member["name"].lower():
@@ -27,7 +27,7 @@ def resolve_assignee(client: LinearClient, team_id_or_key: str, name: str) -> st
 
 def resolve_labels(client: LinearClient, team_id_or_key: str, names: list[str]) -> list[str]:
     """Resolve label names to IDs. Case-insensitive."""
-    team = get_team(client, team_id_or_key)
+    team = client.get_team(team_id_or_key)
     label_map = {lbl["name"].lower(): lbl["id"] for lbl in team["labels"]["nodes"]}
     ids = []
     for name in names:
@@ -41,5 +41,5 @@ def resolve_labels(client: LinearClient, team_id_or_key: str, names: list[str]) 
 
 def resolve_team_id(client: LinearClient, team_key: str) -> str:
     """Resolve a team key to its ID."""
-    team = get_team(client, team_key)
+    team = client.get_team(team_key)
     return team["id"]

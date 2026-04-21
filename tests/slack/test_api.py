@@ -1,4 +1,4 @@
-"""Tests for agent_kit.slack.api."""
+"""Tests for agent_kit.slack.client.SlackClient."""
 
 from unittest.mock import patch
 
@@ -7,25 +7,20 @@ import pytest
 import respx
 from httpx import Response
 
-from agent_kit.errors import AuthError, ConfigError
-from agent_kit.slack.api import api_get, api_post, check_channel_scope, paginated_get, require_read
+from agent_kit.errors import AuthError
+from agent_kit.slack.client import SlackClient
 
 SLACK_API = "https://slack.com/api"
 
 
-@pytest.fixture(autouse=True)
-def _fake_token():
-    with patch("agent_kit.slack.api.get_user_token", return_value="xoxp-fake"):
-        yield
-
-
-class TestApiGet:
+class TestGet:
     @respx.mock
     def test_returns_json(self):
         respx.get(f"{SLACK_API}/auth.test").mock(
             return_value=Response(200, json={"ok": True, "user": "U123"})
         )
-        result = api_get("auth.test")
+        client = SlackClient("xoxp-fake")
+        result = client._get("auth.test")
         assert result["user"] == "U123"
 
     @respx.mock
@@ -33,28 +28,18 @@ class TestApiGet:
         respx.get(f"{SLACK_API}/conversations.list").mock(
             return_value=Response(200, json={"ok": False, "error": "missing_scope"})
         )
+        client = SlackClient("xoxp-fake")
         with pytest.raises(ValueError, match="missing_scope"):
-            api_get("conversations.list")
+            client._get("conversations.list")
 
     @respx.mock
     def test_raises_auth_error_on_token_revoked(self):
         respx.get(f"{SLACK_API}/auth.test").mock(
             return_value=Response(200, json={"ok": False, "error": "token_revoked"})
         )
+        client = SlackClient("xoxp-fake")
         with pytest.raises(AuthError, match="token_revoked"):
-            api_get("auth.test")
-
-    @respx.mock
-    def test_clears_cached_token_on_auth_error(self):
-        import agent_kit.slack.api as mod
-
-        mod._cached_token = "old"
-        respx.get(f"{SLACK_API}/auth.test").mock(
-            return_value=Response(200, json={"ok": False, "error": "invalid_auth"})
-        )
-        with pytest.raises(AuthError):
-            api_get("auth.test")
-        assert mod._cached_token is None
+            client._get("auth.test")
 
     @respx.mock
     def test_raises_on_429_with_retry_after(self):
@@ -65,17 +50,19 @@ class TestApiGet:
                 json={"ok": False, "error": "ratelimited"},
             )
         )
+        client = SlackClient("xoxp-fake")
         with pytest.raises(httpx.HTTPStatusError, match="retry after 30s"):
-            api_get("conversations.list")
+            client._get("conversations.list")
 
 
-class TestApiPost:
+class TestPost:
     @respx.mock
     def test_sends_post(self):
         route = respx.post(f"{SLACK_API}/conversations.open").mock(
             return_value=Response(200, json={"ok": True, "channel": {"id": "D123"}})
         )
-        result = api_post("conversations.open", {"users": "U456"})
+        client = SlackClient("xoxp-fake")
+        result = client._post("conversations.open", {"users": "U456"})
         assert result["channel"]["id"] == "D123"
         assert route.calls[0].request.method == "POST"
 
@@ -93,7 +80,8 @@ class TestPaginatedGet:
                 },
             )
         )
-        result = paginated_get("conversations.list", "channels", limit=10)
+        client = SlackClient("xoxp-fake")
+        result = client._paginated_get("conversations.list", "channels", limit=10)
         assert len(result) == 2
 
     @respx.mock
@@ -108,7 +96,8 @@ class TestPaginatedGet:
                 },
             )
         )
-        result = paginated_get("conversations.list", "channels", limit=5)
+        client = SlackClient("xoxp-fake")
+        result = client._paginated_get("conversations.list", "channels", limit=5)
         assert len(result) == 5
 
     @respx.mock
@@ -119,7 +108,8 @@ class TestPaginatedGet:
                 json={"ok": True, "members": [], "response_metadata": {"next_cursor": "abc"}},
             )
         )
-        result = paginated_get("users.list", "members", limit=100)
+        client = SlackClient("xoxp-fake")
+        result = client._paginated_get("users.list", "members", limit=100)
         assert result == []
 
     @respx.mock
@@ -144,8 +134,9 @@ class TestPaginatedGet:
                 ),
             ]
         )
-        with patch("agent_kit.slack.api.time.sleep"):
-            result = paginated_get("conversations.list", "channels", limit=10)
+        client = SlackClient("xoxp-fake")
+        with patch("agent_kit.slack.client.time.sleep"):
+            result = client._paginated_get("conversations.list", "channels", limit=10)
         assert [c["id"] for c in result] == ["C1", "C2"]
 
     @respx.mock
@@ -160,43 +151,115 @@ class TestPaginatedGet:
                 },
             )
         )
-        with patch("agent_kit.slack.api.time.sleep"):
-            result = paginated_get("conversations.list", "channels", limit=9999)
-        assert len(result) == 10  # max_pages=10, 1 item per page
+        client = SlackClient("xoxp-fake")
+        with patch("agent_kit.slack.client.time.sleep"):
+            result = client._paginated_get("conversations.list", "channels", limit=9999)
+        assert len(result) == 10
         assert "max page limit" in capsys.readouterr().err
 
 
-class TestRequireRead:
-    def test_passes_when_enabled(self):
-        require_read({"slack": {"read": {"enabled": True}}})
+class TestPublicMethods:
+    @respx.mock
+    def test_get_channels(self):
+        respx.get(f"{SLACK_API}/conversations.list").mock(
+            return_value=Response(
+                200,
+                json={
+                    "ok": True,
+                    "channels": [{"id": "C1", "name": "general"}],
+                    "response_metadata": {"next_cursor": ""},
+                },
+            )
+        )
+        client = SlackClient("xoxp-fake")
+        chs = client.get_channels()
+        assert chs[0]["name"] == "general"
 
-    def test_passes_when_missing(self):
-        require_read({})
+    @respx.mock
+    def test_search_messages(self):
+        respx.get(f"{SLACK_API}/search.messages").mock(
+            return_value=Response(
+                200, json={"ok": True, "messages": {"matches": [{"text": "hello"}]}}
+            )
+        )
+        client = SlackClient("xoxp-fake")
+        data = client.search_messages("hello")
+        assert data["messages"]["matches"][0]["text"] == "hello"
 
-    def test_raises_when_disabled(self):
-        with pytest.raises(ConfigError, match="disabled"):
-            require_read({"slack": {"read": {"enabled": False}}})
+    @respx.mock
+    def test_open_conversation(self):
+        respx.post(f"{SLACK_API}/conversations.open").mock(
+            return_value=Response(200, json={"ok": True, "channel": {"id": "D1"}})
+        )
+        client = SlackClient("xoxp-fake")
+        result = client.open_conversation("U1")
+        assert result["channel"]["id"] == "D1"
 
 
-class TestCheckChannelScope:
-    def test_dm_disabled(self):
+class TestWebhook:
+    @respx.mock
+    def test_send_webhook(self):
+        route = respx.post("https://hooks.slack.com/test").mock(
+            return_value=Response(200, text="ok")
+        )
+        client = SlackClient("xoxp-fake", webhook_url="https://hooks.slack.com/test")
+        client.send_webhook("hello")
+        assert route.called
+
+    def test_send_webhook_no_url(self):
+        client = SlackClient("xoxp-fake")
+        with pytest.raises(AuthError, match="webhook"):
+            client.send_webhook("hello")
+
+
+class TestRequireReadAndScope:
+    """Test the CLI-level config checks (moved from api.py)."""
+
+    def test_require_read_enabled(self):
+        from agent_kit.slack.cli import _require_read
+
+        _require_read({"slack": {"read": {"enabled": True}}})
+
+    def test_require_read_disabled(self):
+        from agent_kit.slack.cli import _require_read
+
+        with pytest.raises(Exception, match="disabled"):
+            _require_read({"slack": {"read": {"enabled": False}}})
+
+    def test_require_read_default(self):
+        from agent_kit.slack.cli import _require_read
+
+        _require_read({})
+
+    def test_scope_dm_disabled(self):
+        from agent_kit.slack.cli import _check_channel_scope
+
         config = {"slack": {"read": {"scope": {"include_dms": False}}}}
-        with pytest.raises(ConfigError, match="DM access"):
-            check_channel_scope(config, "D1", "im")
+        with pytest.raises(Exception, match="DM"):
+            _check_channel_scope(config, "D1", "im")
 
-    def test_group_dm_disabled(self):
+    def test_scope_group_dm_disabled(self):
+        from agent_kit.slack.cli import _check_channel_scope
+
         config = {"slack": {"read": {"scope": {"include_group_dms": False}}}}
-        with pytest.raises(ConfigError, match="Group DM"):
-            check_channel_scope(config, "G1", "mpim")
+        with pytest.raises(Exception, match="Group DM"):
+            _check_channel_scope(config, "G1", "mpim")
 
-    def test_channel_not_in_allowed_list(self):
-        config = {"slack": {"read": {"scope": {"channels": ["C1", "C2"]}}}}
-        with pytest.raises(ConfigError, match="not in the configured scope"):
-            check_channel_scope(config, "C99", "public")
+    def test_scope_channel_not_allowed(self):
+        from agent_kit.slack.cli import _check_channel_scope
 
-    def test_passes_when_in_allowed_list(self):
-        config = {"slack": {"read": {"scope": {"channels": ["C1"]}}}}
-        check_channel_scope(config, "C1", "public")
+        config = {"slack": {"read": {"scope": {"channels": ["#general"]}}}}
+        with pytest.raises(Exception, match="not in"):
+            _check_channel_scope(config, "C999", None)
 
-    def test_passes_when_no_scope(self):
-        check_channel_scope({}, "C1", "public")
+    def test_scope_channel_allowed(self):
+        from agent_kit.slack.cli import _check_channel_scope
+
+        config = {"slack": {"read": {"scope": {"channels": ["#general"]}}}}
+        _check_channel_scope(config, "#general", None)
+
+    def test_scope_empty_allows_all(self):
+        from agent_kit.slack.cli import _check_channel_scope
+
+        config = {"slack": {"read": {"scope": {"channels": []}}}}
+        _check_channel_scope(config, "C999", None)

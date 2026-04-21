@@ -1,50 +1,31 @@
-"""Gmail API client."""
+"""Gmail API operations."""
+
+from __future__ import annotations
 
 import re
 import subprocess
 from base64 import urlsafe_b64decode
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import httpx
-
-from agent_kit.google.auth import get_token
+if TYPE_CHECKING:
+    from agent_kit.google.client import GoogleClient
 
 API_BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
 
 
-def _get(path: str, params: dict[str, Any] | None = None) -> Any:
-    token = get_token()
-    resp = httpx.get(
-        f"{API_BASE}{path}",
-        params=params,
-        headers={"Authorization": f"Bearer {token}"},
-        timeout=30,
-    )
-    if resp.status_code == 401:
-        from agent_kit.google.auth import _refresh
-
-        token = _refresh()
-        resp = httpx.get(
-            f"{API_BASE}{path}",
-            params=params,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
+def _get(client: GoogleClient, path: str, params: dict[str, Any] | None = None) -> Any:
+    resp = client._request("GET", f"{API_BASE}{path}", params=params)
     if resp.status_code in (401, 403):
         resp.raise_for_status()
     if resp.status_code == 429:
-        raise httpx.HTTPStatusError(
-            "Google API rate limit exceeded, try again later",
-            request=resp.request,
-            response=resp,
-        )
+        raise ValueError("Google API rate limit exceeded, try again later")
     if resp.status_code >= 400:
         _raise_error(resp)
     return resp.json()
 
 
-def _raise_error(resp: httpx.Response) -> None:
+def _raise_error(resp) -> None:
     try:
         body = resp.json()
         msg = body.get("error", {}).get("message", "")
@@ -70,27 +51,26 @@ def _format_message_summary(msg: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def search_messages(query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-    data = _get("/messages", params={"q": query, "maxResults": limit})
+def search_messages(client: GoogleClient, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    data = _get(client, "/messages", params={"q": query, "maxResults": limit})
     messages = data.get("messages", [])
-    return [_format_message_summary(_get(f"/messages/{m['id']}")) for m in messages]
+    return [_format_message_summary(_get(client, f"/messages/{m['id']}")) for m in messages]
 
 
-def list_recent(hours: int = 24, *, limit: int = 20) -> list[dict[str, Any]]:
-    query = f"newer_than:{hours}h"
-    return search_messages(query, limit=limit)
+def list_recent(client: GoogleClient, hours: int = 24, *, limit: int = 20) -> list[dict[str, Any]]:
+    return search_messages(client, f"newer_than:{hours}h", limit=limit)
 
 
-def list_unread(*, limit: int = 20) -> list[dict[str, Any]]:
-    return search_messages("is:unread", limit=limit)
+def list_unread(client: GoogleClient, *, limit: int = 20) -> list[dict[str, Any]]:
+    return search_messages(client, "is:unread", limit=limit)
 
 
 # --- Read single message ---
 
 
-def get_message(message_id: str) -> dict[str, Any]:
+def get_message(client: GoogleClient, message_id: str) -> dict[str, Any]:
     """Get full message with parsed body and attachment info."""
-    msg = _get(f"/messages/{message_id}", params={"format": "full"})
+    msg = _get(client, f"/messages/{message_id}", params={"format": "full"})
     headers = {h["name"].lower(): h["value"] for h in msg.get("payload", {}).get("headers", [])}
 
     body = _extract_body(msg.get("payload", {}))
@@ -108,34 +88,33 @@ def get_message(message_id: str) -> dict[str, Any]:
     }
 
 
-def download_attachment(message_id: str, attachment_id: str) -> bytes:
+def download_attachment(client: GoogleClient, message_id: str, attachment_id: str) -> bytes:
     """Download an attachment and return raw bytes."""
-    data = _get(f"/messages/{message_id}/attachments/{attachment_id}")
+    data = _get(client, f"/messages/{message_id}/attachments/{attachment_id}")
     return urlsafe_b64decode(data["data"])
 
 
-def write_message_to_file(message_id: str, output_dir: Path) -> tuple[Path, list[Path]]:
+def write_message_to_file(
+    client: GoogleClient, message_id: str, output_dir: Path
+) -> tuple[Path, list[Path]]:
     """Download a message as markdown with attachments. Returns (md_path, attachment_paths)."""
-    msg = get_message(message_id)
+    msg = get_message(client, message_id)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build filename from date and subject
     date_part = msg["date"][:10] if msg["date"] else "unknown"
     subject_slug = _slugify(msg["subject"] or "no-subject")
     basename = f"{date_part}-{subject_slug}"
 
-    # Write markdown with frontmatter
     md_content = _format_as_markdown(msg)
     md_path = output_dir / f"{basename}.md"
     md_path.write_text(md_content)
 
-    # Download attachments
     attachment_paths: list[Path] = []
     if msg["attachments"]:
         att_dir = output_dir / f"{basename}_attachments"
         att_dir.mkdir(exist_ok=True)
         for att in msg["attachments"]:
-            data = download_attachment(message_id, att["id"])
+            data = download_attachment(client, message_id, att["id"])
             att_path = att_dir / att["filename"]
             att_path.write_bytes(data)
             attachment_paths.append(att_path)
@@ -187,7 +166,6 @@ def _list_attachments(payload: dict[str, Any]) -> list[dict[str, str]]:
                     "mimeType": part.get("mimeType", ""),
                 }
             )
-        # Recurse into nested multipart
         attachments.extend(_list_attachments(part))
     return attachments
 
@@ -197,9 +175,7 @@ def _list_attachments(payload: dict[str, Any]) -> list[dict[str, str]]:
 
 def html_to_markdown(html: str) -> str:
     """Convert HTML to markdown. Uses pandoc if available, falls back to basic stripping."""
-    # Strip inline images (signature logos, tracking pixels)
     html = re.sub(r"<img[^>]*>", "", html, flags=re.IGNORECASE)
-    # Strip style attributes from tags
     html = re.sub(r'\s+style="[^"]*"', "", html, flags=re.IGNORECASE)
 
     try:
@@ -215,13 +191,11 @@ def html_to_markdown(html: str) -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # Fallback: basic HTML tag stripping
     return _clean_markdown(_strip_html(html))
 
 
 def _strip_html(html: str) -> str:
     """Basic HTML → plain text fallback."""
-    # Remove style and script blocks
     text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
@@ -239,15 +213,10 @@ def _strip_html(html: str) -> str:
 
 def _clean_markdown(text: str) -> str:
     """Remove style/id attributes and residual HTML that leak into markdown output."""
-    # Remove {style="..."} and {#id style="..."} attribute blocks
     text = re.sub(r'\{[^}]*style="[^"]*"[^}]*\}', "", text)
-    # Remove standalone {#id} anchors
     text = re.sub(r"\{#[^}]+\}", "", text)
-    # Remove empty span-like constructs []{...}
     text = re.sub(r"\[\]\s*\{[^}]*\}", "", text)
-    # Remove any residual HTML tags
     text = re.sub(r"<[^>]+>", "", text)
-    # Clean up excess whitespace left behind
     text = re.sub(r" +\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

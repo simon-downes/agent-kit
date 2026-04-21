@@ -7,7 +7,7 @@ import respx
 from httpx import Response
 
 from agent_kit.jira.cli import jira
-from agent_kit.jira.client import JiraClient
+from agent_kit.jira.client import JiraClient  # noqa: F401
 
 BASE_URL = "https://api.atlassian.com/ex/jira/cloud123/rest/api/3"
 

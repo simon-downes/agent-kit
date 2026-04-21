@@ -4,15 +4,7 @@ import pytest
 import respx
 from httpx import Response
 
-from agent_kit.linear.client import (
-    LinearClient,
-    _format_issue,
-    create_issue,
-    get_comments,
-    get_issue,
-    get_issues,
-    get_teams,
-)
+from agent_kit.linear.client import LinearClient
 from agent_kit.linear.resolve import resolve_assignee, resolve_labels, resolve_status, resolve_team_id
 
 LINEAR_API = "https://api.linear.app/graphql/"
@@ -69,7 +61,8 @@ class TestLinearClient:
 
 class TestFormatIssue:
     def test_flattens_issue(self):
-        result = _format_issue(SAMPLE_ISSUE)
+        client = LinearClient("key")
+        result = client._format_issue(SAMPLE_ISSUE)
         assert result["identifier"] == "PLAT-1"
         assert result["status"] == "In Progress"
         assert result["assignee"] == "Alice"
@@ -77,8 +70,9 @@ class TestFormatIssue:
         assert result["project"] == "Platform"
 
     def test_handles_null_assignee(self):
+        client = LinearClient("key")
         issue = {**SAMPLE_ISSUE, "assignee": None}
-        result = _format_issue(issue)
+        result = client._format_issue(issue)
         assert result["assignee"] is None
 
 
@@ -91,7 +85,7 @@ class TestGetTeams:
             )
         )
         client = LinearClient("key")
-        teams = get_teams(client)
+        teams = client.get_teams()
         assert len(teams) == 1
         assert teams[0]["key"] == "PLAT"
 
@@ -113,7 +107,7 @@ class TestGetIssues:
             )
         )
         client = LinearClient("key")
-        issues = get_issues(client, team_id="t1", limit=10)
+        issues = client.get_issues(team_id="t1", limit=10)
         assert len(issues) == 1
         assert issues[0]["identifier"] == "PLAT-1"
 
@@ -146,7 +140,7 @@ class TestGetIssues:
             ]
         )
         client = LinearClient("key")
-        issues = get_issues(client, team_id="t1", limit=10)
+        issues = client.get_issues(team_id="t1", limit=10)
         assert len(issues) == 2
 
     @respx.mock
@@ -165,7 +159,7 @@ class TestGetIssues:
             )
         )
         client = LinearClient("key")
-        issues = get_issues(client, team_id="t1", limit=1)
+        issues = client.get_issues(team_id="t1", limit=1)
         assert len(issues) == 1
 
 
@@ -177,7 +171,7 @@ class TestGetIssue:
             return_value=Response(200, json={"data": {"issue": issue}})
         )
         client = LinearClient("key")
-        result = get_issue(client, "PLAT-1")
+        result = client.get_issue("PLAT-1")
         assert result["description"] == "desc"
         assert result["team"] == "PLAT"
 
@@ -188,7 +182,7 @@ class TestGetIssue:
         )
         client = LinearClient("key")
         with pytest.raises(ValueError, match="not found"):
-            get_issue(client, "PLAT-999")
+            client.get_issue("PLAT-999")
 
 
 class TestCreateIssue:
@@ -200,7 +194,7 @@ class TestCreateIssue:
             )
         )
         client = LinearClient("key")
-        result = create_issue(client, team_id="t1", title="New")
+        result = client.create_issue(team_id="t1", title="New")
         assert result["identifier"] == "PLAT-1"
 
 
@@ -224,7 +218,7 @@ class TestGetComments:
             )
         )
         client = LinearClient("key")
-        comments = get_comments(client, "PLAT-1")
+        comments = client.get_comments("PLAT-1")
         assert len(comments) == 1
         assert comments[0]["author"] == "Alice"
 

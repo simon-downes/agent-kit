@@ -4,13 +4,18 @@ from unittest.mock import patch
 
 import pytest
 
+from agent_kit.google.client import GoogleClient
+
+
+@pytest.fixture()
+def google_client():
+    """Create a GoogleClient that skips auth entirely."""
+    creds = {"access_token": "fake-tok", "expires_at": "2099-01-01T00:00:00+00:00"}
+    return GoogleClient(creds)
+
 
 @pytest.fixture(autouse=True)
-def _fake_google_token():
-    """Patch get_token at all usage sites so API calls never hit real auth."""
-    with (
-        patch("agent_kit.google.mail.get_token", return_value="fake-tok"),
-        patch("agent_kit.google.calendar.get_token", return_value="fake-tok"),
-        patch("agent_kit.google.drive.get_token", return_value="fake-tok"),
-    ):
+def _patch_get_client(google_client):
+    """Patch _get_client in cli.py so CLI tests use the fake client."""
+    with patch("agent_kit.google.cli._get_client", return_value=google_client):
         yield

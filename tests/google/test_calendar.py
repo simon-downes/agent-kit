@@ -52,11 +52,12 @@ class TestFormatEventDetail:
 
 class TestGetEvents:
     @respx.mock
-    def test_fetches_events(self):
+    def test_fetches_events(self, google_client):
         respx.get(f"{CAL_API}/calendars/primary/events").mock(
             return_value=Response(200, json={"items": [SAMPLE_EVENT]})
         )
         result = get_events(
+            google_client,
             time_min="2026-01-01T00:00:00Z",
             time_max="2026-01-02T00:00:00Z",
         )
@@ -66,10 +67,10 @@ class TestGetEvents:
 
 class TestGetEvent:
     @respx.mock
-    def test_fetches_single_event(self):
+    def test_fetches_single_event(self, google_client):
         respx.get(f"{CAL_API}/calendars/primary/events/ev1").mock(
             return_value=Response(200, json=SAMPLE_EVENT)
         )
-        result = get_event("ev1")
+        result = get_event(google_client, "ev1")
         assert result["id"] == "ev1"
         assert result["description"] == "Daily standup"

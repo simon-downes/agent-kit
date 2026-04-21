@@ -39,20 +39,18 @@ class TestFormatFile:
 
 class TestSearchFiles:
     @respx.mock
-    def test_search(self):
+    def test_search(self, google_client):
         respx.get(f"{DRIVE_API}/files").mock(
             return_value=Response(200, json={"files": [SAMPLE_FILE]})
         )
-        result = search_files("My Doc", limit=5)
+        result = search_files(google_client, "My Doc", limit=5)
         assert len(result) == 1
         assert result[0]["name"] == "My Doc"
 
 
 class TestFetchFile:
     @respx.mock
-    def test_downloads_binary(self, tmp_path):
-        # _get adds supportsAllDrives/includeItemsFromAllDrives params
-        # _download hits the raw URL with ?alt=media
+    def test_downloads_binary(self, google_client, tmp_path):
         respx.get(f"{DRIVE_API}/files/f1").mock(
             side_effect=[
                 Response(200, json={
@@ -63,12 +61,12 @@ class TestFetchFile:
                 Response(200, content=b"%PDF-content"),
             ]
         )
-        path = fetch_file("f1", tmp_path)
+        path = fetch_file(google_client, "f1", tmp_path)
         assert path.name == "report.pdf"
         assert path.read_bytes() == b"%PDF-content"
 
     @respx.mock
-    def test_exports_google_doc_as_markdown(self, tmp_path):
+    def test_exports_google_doc_as_markdown(self, google_client, tmp_path):
         with patch("agent_kit.google.drive.subprocess.run") as mock_run:
             mock_run.return_value.returncode = 0
             mock_run.return_value.stdout = b"# Title\n\nContent"
@@ -82,11 +80,11 @@ class TestFetchFile:
             respx.get(f"{DRIVE_API}/files/f2/export").mock(
                 return_value=Response(200, content=b"<h1>Title</h1><p>Content</p>")
             )
-            path = fetch_file("f2", tmp_path)
+            path = fetch_file(google_client, "f2", tmp_path)
             assert path.suffix == ".md"
 
     @respx.mock
-    def test_exports_spreadsheet_as_csv(self, tmp_path):
+    def test_exports_spreadsheet_as_csv(self, google_client, tmp_path):
         respx.get(f"{DRIVE_API}/files/f3").mock(
             return_value=Response(200, json={
                 "id": "f3",
@@ -97,14 +95,14 @@ class TestFetchFile:
         respx.get(f"{DRIVE_API}/files/f3/export").mock(
             return_value=Response(200, content=b"a,b,c\n1,2,3")
         )
-        path = fetch_file("f3", tmp_path)
+        path = fetch_file(google_client, "f3", tmp_path)
         assert path.suffix == ".csv"
         assert b"a,b,c" in path.read_bytes()
 
 
 class TestFetchToStdout:
     @respx.mock
-    def test_exports_google_doc(self):
+    def test_exports_google_doc(self, google_client):
         with patch("agent_kit.google.mail.subprocess.run", side_effect=FileNotFoundError):
             respx.get(f"{DRIVE_API}/files/f1").mock(
                 return_value=Response(200, json={
@@ -116,11 +114,11 @@ class TestFetchToStdout:
             respx.get(f"{DRIVE_API}/files/f1/export").mock(
                 return_value=Response(200, content=b"<p>Hello</p>")
             )
-            result = fetch_to_stdout("f1")
+            result = fetch_to_stdout(google_client, "f1")
             assert "Hello" in result
 
     @respx.mock
-    def test_raises_for_binary(self):
+    def test_raises_for_binary(self, google_client):
         respx.get(f"{DRIVE_API}/files/f1").mock(
             return_value=Response(200, json={
                 "id": "f1",
@@ -129,7 +127,7 @@ class TestFetchToStdout:
             })
         )
         with pytest.raises(ValueError, match="binary files cannot be output"):
-            fetch_to_stdout("f1")
+            fetch_to_stdout(google_client, "f1")
 
 
 class TestGoogleDocTypes:
