@@ -8,7 +8,10 @@ from agent_kit.tasks.client import TaskClient
 @pytest.fixture
 def client(tmp_path):
     """TaskClient backed by a temp database."""
-    return TaskClient(db_path=tmp_path / "tasks.db")
+    c = TaskClient(db_path=tmp_path / "tasks.db")
+    c._log_dir = tmp_path / "logs"
+    c._log_dir.mkdir()
+    return c
 
 
 class TestCreate:
@@ -38,7 +41,6 @@ class TestCreate:
 
     def test_allows_same_name_after_completion(self, client):
         task = client.create("reuse-task", "echo", [])
-        # Simulate completion
         client._conn.execute(
             "UPDATE tasks SET status = 'done' WHERE id = ?", (task["id"],)
         )
@@ -53,3 +55,111 @@ class TestCreate:
     def test_empty_args(self, client):
         task = client.create("no-args", "pwd", [])
         assert task["args"] == []
+
+
+class TestListTasks:
+    def test_default_shows_pending_and_running(self, client):
+        client.create("t1", "echo", [])
+        t2 = client.create("t2", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'running' WHERE id = ?", (t2["id"],))
+        t3 = client.create("t3", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (t3["id"],))
+        client._conn.commit()
+        result = client.list_tasks()
+        names = [t["name"] for t in result]
+        assert "t1" in names
+        assert "t2" in names
+        assert "t3" not in names
+
+    def test_show_all(self, client):
+        client.create("t1", "echo", [])
+        t2 = client.create("t2", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (t2["id"],))
+        client._conn.commit()
+        result = client.list_tasks(show_all=True)
+        assert len(result) == 2
+
+    def test_filter_by_status(self, client):
+        client.create("t1", "echo", [])
+        t2 = client.create("t2", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (t2["id"],))
+        client._conn.commit()
+        result = client.list_tasks(status="done")
+        assert len(result) == 1
+        assert result[0]["name"] == "t2"
+
+    def test_ordered_ascending(self, client):
+        client.create("first", "echo", [])
+        client.create("second", "echo", [])
+        result = client.list_tasks()
+        assert result[0]["name"] == "first"
+        assert result[1]["name"] == "second"
+
+    def test_limit(self, client):
+        for i in range(5):
+            client.create(f"t{i}", "echo", [])
+        result = client.list_tasks(limit=3)
+        assert len(result) == 3
+
+
+class TestGet:
+    def test_get_by_name(self, client):
+        client.create("my-task", "echo", [])
+        task = client.get("my-task")
+        assert task["name"] == "my-task"
+
+    def test_get_by_id(self, client):
+        created = client.create("my-task", "echo", [])
+        task = client.get(str(created["id"]))
+        assert task["name"] == "my-task"
+
+    def test_name_takes_precedence(self, client):
+        created = client.create("my-task", "echo", [])
+        task = client.get("my-task")
+        assert task["id"] == created["id"]
+
+    def test_not_found(self, client):
+        with pytest.raises(ValueError, match="not found"):
+            client.get("nonexistent")
+
+    def test_not_found_numeric(self, client):
+        with pytest.raises(ValueError, match="not found"):
+            client.get("99999")
+
+
+class TestGetLogPath:
+    def test_stdout_log_path(self, client):
+        client.create("my-task", "echo", [])
+        path = client.get_log_path("my-task")
+        assert path.name.startswith("my-task-")
+        assert path.suffix == ".log"
+
+    def test_error_log_path(self, client):
+        client.create("my-task", "echo", [])
+        path = client.get_log_path("my-task", error=True)
+        assert "my-task-" in path.name
+        assert path.name.endswith(".error.log")
+
+
+class TestCancel:
+    def test_cancel_pending(self, client):
+        client.create("my-task", "echo", [])
+        task = client.cancel("my-task")
+        assert task["status"] == "cancelled"
+        assert task["finished_at"] is not None
+        assert task["error"] is None
+
+    def test_cancel_running(self, client):
+        created = client.create("my-task", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'running' WHERE id = ?", (created["id"],))
+        client._conn.commit()
+        task = client.cancel("my-task")
+        assert task["status"] == "cancelled"
+        assert task["error"] == "cancelled by user"
+
+    def test_cancel_completed_raises(self, client):
+        created = client.create("my-task", "echo", [])
+        client._conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (created["id"],))
+        client._conn.commit()
+        with pytest.raises(ValueError, match="already completed"):
+            client.cancel("my-task")
