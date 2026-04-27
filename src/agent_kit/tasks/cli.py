@@ -5,7 +5,7 @@ import sys
 import click
 
 from agent_kit.errors import handle_errors, output
-from agent_kit.tasks.client import TaskClient
+from agent_kit.tasks.client import TaskClient, parse_duration
 
 
 def _get_client() -> TaskClient:
@@ -82,3 +82,13 @@ def run() -> None:
     if results:
         for task in results:
             print(f"[{task['status']}] {task['name']}", file=sys.stderr)
+
+
+@tasks.command()
+@click.option("--before", default="7d", help="Remove tasks older than this (e.g. 7d, 2h, 30m)")
+@handle_errors
+def clean(before: str) -> None:
+    """Remove old completed tasks and their logs."""
+    duration = parse_duration(before)
+    count = _get_client().clean(duration)
+    print(f"Removed {count} task(s)")

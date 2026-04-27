@@ -1,11 +1,12 @@
 """Task runner client — DB operations and task execution."""
 
 import json
+import re
 import sqlite3
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_kit.config import load_config
@@ -16,6 +17,17 @@ _DEFAULT_INACTIVITY_TIMEOUT = 600
 _POLL_INTERVAL = 5
 _TERM_GRACE_PERIOD = 10
 _MAX_WORKERS = 4
+
+_DURATION_RE = re.compile(r"^(\d+)([mhd])$")
+_DURATION_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+
+
+def parse_duration(s: str) -> timedelta:
+    """Parse a duration string like '7d', '2h', '30m' into a timedelta."""
+    m = _DURATION_RE.match(s)
+    if not m:
+        raise ValueError(f"invalid duration '{s}' — use format like 7d, 2h, 30m")
+    return timedelta(**{_DURATION_UNITS[m.group(2)]: int(m.group(1))})
 
 
 class TaskClient:
@@ -115,6 +127,30 @@ class TaskClient:
             for future in futures:
                 results.append(future.result())
         return results
+
+    def clean(self, before: timedelta) -> int:
+        """Remove completed tasks older than the given duration. Returns count removed."""
+        cutoff = (datetime.now(UTC) - before).isoformat()
+        rows = self._conn.execute(
+            "SELECT * FROM tasks WHERE status IN ('done', 'failed', 'timeout', 'cancelled') "
+            "AND finished_at < ?",
+            (cutoff,),
+        ).fetchall()
+        if not rows:
+            return 0
+        for row in rows:
+            task = self._row_to_dict(row)
+            for error_flag in (False, True):
+                log = self._log_path(task, error=error_flag)
+                if log.exists():
+                    log.unlink()
+        self._conn.execute(
+            "DELETE FROM tasks WHERE status IN ('done', 'failed', 'timeout', 'cancelled') "
+            "AND finished_at < ?",
+            (cutoff,),
+        )
+        self._conn.commit()
+        return len(rows)
 
     # --- Private implementation ---
 

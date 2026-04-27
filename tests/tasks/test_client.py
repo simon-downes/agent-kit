@@ -1,6 +1,7 @@
 """Tests for agent_kit.tasks.client."""
 
 import time
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -265,3 +266,70 @@ class TestRun:
         results = client.run()
         t.join()
         assert results[0]["status"] == "cancelled"
+
+
+class TestParseDuration:
+    def test_days(self):
+        from agent_kit.tasks.client import parse_duration
+
+        assert parse_duration("7d") == timedelta(days=7)
+
+    def test_hours(self):
+        from agent_kit.tasks.client import parse_duration
+
+        assert parse_duration("2h") == timedelta(hours=2)
+
+    def test_minutes(self):
+        from agent_kit.tasks.client import parse_duration
+
+        assert parse_duration("30m") == timedelta(minutes=30)
+
+    def test_invalid(self):
+        from agent_kit.tasks.client import parse_duration
+
+        with pytest.raises(ValueError, match="invalid duration"):
+            parse_duration("abc")
+
+    def test_no_unit(self):
+        from agent_kit.tasks.client import parse_duration
+
+        with pytest.raises(ValueError, match="invalid duration"):
+            parse_duration("42")
+
+
+class TestClean:
+    def test_removes_old_completed_tasks(self, client):
+        task = client.create("old-task", "echo", [])
+        # Simulate completion 10 days ago
+        client._conn.execute(
+            "UPDATE tasks SET status = 'done', finished_at = '2020-01-01T00:00:00+00:00' "
+            "WHERE id = ?",
+            (task["id"],),
+        )
+        client._conn.commit()
+        # Create log files
+        client._log_dir.mkdir(parents=True, exist_ok=True)
+        log = client._log_dir / f"old-task-{task['id']}.log"
+        err_log = client._log_dir / f"old-task-{task['id']}.error.log"
+        log.write_text("output")
+        err_log.write_text("errors")
+
+        count = client.clean(timedelta(days=7))
+        assert count == 1
+        assert not log.exists()
+        assert not err_log.exists()
+
+    def test_preserves_recent_tasks(self, client):
+        task = client.create("recent-task", "echo", [])
+        client._conn.execute(
+            "UPDATE tasks SET status = 'done', finished_at = ? WHERE id = ?",
+            (datetime.now(UTC).isoformat(), task["id"]),
+        )
+        client._conn.commit()
+        count = client.clean(timedelta(days=7))
+        assert count == 0
+
+    def test_preserves_active_tasks(self, client):
+        client.create("active-task", "echo", [])
+        count = client.clean(timedelta(days=0))
+        assert count == 0

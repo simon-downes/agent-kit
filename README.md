@@ -87,6 +87,11 @@ events, search and fetch documents. Google Docs export as markdown via pandoc.
 Read channels, search messages, list users, and send notifications. Read via user
 token OAuth, write via incoming webhooks.
 
+### [Tasks](docs/tasks.md)
+
+Background task runner — create, execute, monitor, and clean up background tasks.
+SQLite-backed with parallel execution, inactivity timeout, and cron integration.
+
 ## Output Conventions
 
 - **stdout** — structured data (JSON by default), or plain text for simple confirmations
@@ -109,4 +114,5 @@ ak linear issues --team PLAT | jq '.[].identifier'
 - [Jira](docs/jira.md) — Jira Cloud integration
 - [Google Workspace](docs/google.md) — Gmail, Calendar, and Drive
 - [Slack](docs/slack.md) — Slack integration
+- [Tasks](docs/tasks.md) — background task runner
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and conventions

@@ -141,3 +141,21 @@ class TestRun:
     def test_no_pending(self, cli_runner):
         result = cli_runner.invoke(main, ["tasks", "run"])
         assert result.exit_code == 0
+
+
+class TestClean:
+    def test_removes_old_tasks(self, cli_runner, tmp_client):
+        task = tmp_client.create("old", "echo", [])
+        tmp_client._conn.execute(
+            "UPDATE tasks SET status = 'done', finished_at = '2020-01-01T00:00:00+00:00' "
+            "WHERE id = ?",
+            (task["id"],),
+        )
+        tmp_client._conn.commit()
+        result = cli_runner.invoke(main, ["tasks", "clean"])
+        assert result.exit_code == 0
+        assert "1 task(s)" in result.output
+
+    def test_invalid_duration(self, cli_runner):
+        result = cli_runner.invoke(main, ["tasks", "clean", "--before", "abc"])
+        assert result.exit_code == 1

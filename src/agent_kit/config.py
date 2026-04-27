@@ -65,6 +65,9 @@ DEFAULT_CONFIG = {
         },
         "write": {"enabled": True},
     },
+    "tasks": {
+        "inactivity_timeout": 600,
+    },
 }
 
 
