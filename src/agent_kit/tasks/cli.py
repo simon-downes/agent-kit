@@ -46,7 +46,7 @@ def status(name_or_id: str) -> None:
     """Get task details by name or ID."""
     client = _get_client()
     task = client.get(name_or_id)
-    log_path = client.get_log_path(name_or_id)
+    log_path = client._log_path(task)
     if log_path.exists():
         task["log_file"] = str(log_path)
     output(task)

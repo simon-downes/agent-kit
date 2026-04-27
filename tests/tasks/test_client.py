@@ -44,9 +44,7 @@ class TestCreate:
 
     def test_allows_same_name_after_completion(self, client):
         task = client.create("reuse-task", "echo", [])
-        client._conn.execute(
-            "UPDATE tasks SET status = 'done' WHERE id = ?", (task["id"],)
-        )
+        client._conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (task["id"],))
         client._conn.commit()
         task2 = client.create("reuse-task", "echo", [])
         assert task2["id"] != task["id"]
