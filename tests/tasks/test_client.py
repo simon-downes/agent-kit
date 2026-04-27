@@ -1,5 +1,7 @@
 """Tests for agent_kit.tasks.client."""
 
+import time
+
 import pytest
 
 from agent_kit.tasks.client import TaskClient
@@ -163,3 +165,103 @@ class TestCancel:
         client._conn.commit()
         with pytest.raises(ValueError, match="already completed"):
             client.cancel("my-task")
+
+
+class TestRun:
+    def test_claims_and_executes_pending(self, client):
+        client.create("t1", "echo", ["hello"])
+        results = client.run()
+        assert len(results) == 1
+        assert results[0]["status"] == "done"
+        assert results[0]["exit_code"] == 0
+
+    def test_no_pending_returns_empty(self, client):
+        assert client.run() == []
+
+    def test_creates_log_files(self, client):
+        task = client.create("t1", "echo", ["hello"])
+        client.run()
+        log = client._log_dir / f"t1-{task['id']}.log"
+        err_log = client._log_dir / f"t1-{task['id']}.error.log"
+        assert log.exists()
+        assert err_log.exists()
+        assert "hello" in log.read_text()
+
+    def test_captures_exit_code_on_failure(self, client):
+        client.create("t1", "sh", ["-c", "exit 42"])
+        results = client.run()
+        assert results[0]["status"] == "failed"
+        assert results[0]["exit_code"] == 42
+        assert results[0]["error"] == "exit code 42"
+
+    def test_handles_command_not_found(self, client):
+        client.create("t1", "/nonexistent/binary", [])
+        results = client.run()
+        assert results[0]["status"] == "failed"
+        assert results[0]["error"] is not None
+
+    def test_parallel_execution(self, client, monkeypatch):
+        """Multiple tasks run in parallel, not sequentially."""
+        monkeypatch.setattr("agent_kit.tasks.client._POLL_INTERVAL", 0.05)
+        client.create("t1", "sleep", ["0.1"])
+        client.create("t2", "sleep", ["0.1"])
+        start = time.time()
+        results = client.run()
+        elapsed = time.time() - start
+        assert len(results) == 2
+        assert all(r["status"] == "done" for r in results)
+        # If sequential, would take ~0.2s. Parallel should be ~0.1s.
+        assert elapsed < 0.5
+
+    def test_timeout_kills_task(self, client, monkeypatch):
+        """Task killed when log file is stale beyond timeout."""
+        monkeypatch.setattr("agent_kit.tasks.client._POLL_INTERVAL", 0.1)
+        monkeypatch.setattr("agent_kit.tasks.client._TERM_GRACE_PERIOD", 1)
+        # Use a very short timeout
+        monkeypatch.setattr(
+            "agent_kit.tasks.client.load_config",
+            lambda: {"tasks": {"inactivity_timeout": 0}},
+        )
+        client.create("t1", "sleep", ["60"])
+        results = client.run()
+        assert results[0]["status"] == "timeout"
+
+    def test_orphan_detection(self, client, monkeypatch):
+        """Running tasks with stale logs are marked as timed out."""
+        monkeypatch.setattr(
+            "agent_kit.tasks.client.load_config",
+            lambda: {"tasks": {"inactivity_timeout": 0}},
+        )
+        # Create a task and manually set it to running with a stale log
+        task = client.create("orphan", "echo", [])
+        client._conn.execute(
+            "UPDATE tasks SET status = 'running', started_at = ? WHERE id = ?",
+            ("2020-01-01T00:00:00+00:00", task["id"]),
+        )
+        client._conn.commit()
+        # Run should detect the orphan and timeout it
+        client.run()
+        updated = client.get("orphan")
+        assert updated["status"] == "timeout"
+
+    def test_external_cancel_stops_task(self, client, monkeypatch):
+        """A task cancelled externally during execution is terminated."""
+        import threading
+
+        from agent_kit.tasks.db import get_connection
+
+        monkeypatch.setattr("agent_kit.tasks.client._POLL_INTERVAL", 0.1)
+        monkeypatch.setattr("agent_kit.tasks.client._TERM_GRACE_PERIOD", 1)
+        client.create("t1", "sleep", ["60"])
+
+        def cancel_after_delay():
+            time.sleep(0.3)
+            conn = get_connection(client._db_path)
+            conn.execute("UPDATE tasks SET status = 'cancelled' WHERE name = 't1'")
+            conn.commit()
+
+        t = threading.Thread(target=cancel_after_delay)
+        t.start()
+        results = client.run()
+        t.join()
+        assert results[0]["status"] == "cancelled"

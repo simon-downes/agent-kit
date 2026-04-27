@@ -128,3 +128,16 @@ class TestCancel:
         tmp_client._conn.commit()
         result = cli_runner.invoke(main, ["tasks", "cancel", "my-task"])
         assert result.exit_code == 1
+
+
+class TestRun:
+    def test_executes_pending(self, cli_runner, tmp_client):
+        tmp_client.create("t1", "echo", ["hello"])
+        result = cli_runner.invoke(main, ["tasks", "run"])
+        assert result.exit_code == 0
+        task = tmp_client.get("t1")
+        assert task["status"] == "done"
+
+    def test_no_pending(self, cli_runner):
+        result = cli_runner.invoke(main, ["tasks", "run"])
+        assert result.exit_code == 0
