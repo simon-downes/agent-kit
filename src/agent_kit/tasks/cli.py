@@ -1,5 +1,7 @@
 """Task runner CLI subcommands."""
 
+import sys
+
 import click
 
 from agent_kit.errors import handle_errors, output
@@ -70,3 +72,13 @@ def cancel(name_or_id: str) -> None:
     """Cancel a pending or running task."""
     task = _get_client().cancel(name_or_id)
     print(f"Cancelled task '{task['name']}'")
+
+
+@tasks.command()
+@handle_errors
+def run() -> None:
+    """Execute pending tasks. Intended as a cron entry point."""
+    results = _get_client().run()
+    if results:
+        for task in results:
+            print(f"[{task['status']}] {task['name']}", file=sys.stderr)
