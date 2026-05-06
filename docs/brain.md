@@ -1,172 +1,71 @@
 # Brain
 
-A file-based second brain managed as a directory of contexts, each an independent git
-repository. Agent-kit provides the CLI tooling to create, query, and validate the
-brain structure.
+A file-based knowledge base managed as a single git repository. Provides ranked search,
+indexing, reference tracking, and git operations.
 
 ## Concepts
 
-**Brain directory** — the root directory containing all contexts and the raw pipeline.
-Configurable, defaults to `~/.archie/brain`.
+**Brain directory** — the root directory (default `~/.archie/brain/`) containing all
+knowledge, agent state, and ingestion staging.
 
-**Contexts** — top-level subdirectories, each a separate git repo. Represent different
-areas of life or work (e.g. `shared`, `work-acme`, `personal`). Separate repos allow
-selective cloning per device.
+**Index** — `index.yaml` at the brain root providing a compact lookup of entities with
+name, summary, tags, and path.
 
-**Entity directories** — standard subdirectories within each context:
+**Indexable directories** — `people/`, `projects/`, `knowledge/`. Content in these
+directories is indexed by `ak brain reindex`.
 
-| Directory   | Purpose                                    |
-|-------------|--------------------------------------------|
-| `me/`       | Identity, personality, preferences         |
-| `contacts/` | People and relationships                   |
-| `projects/` | Active work                                |
-| `knowledge/`| Concepts, topics, reference material       |
-| `goals/`    | Priorities, OKRs, roadmap items            |
-| `journal/`  | Daily/weekly logs                          |
-| `archive/`  | Retired entities                           |
+**Ingestion** — `_inbox/` at the brain root. Files directly in `_inbox/` are ready for
+processing. Subdirectories are staging areas for bulk work.
 
-These are conventions, not enforced — users structure content however they like within
-them.
+## Setup
 
-**Index** — each context can have an `index.yaml` providing a compact lookup of entities
-(keyed by slug, with name, summary, and path). Used by LLM agents to understand what's
-in the brain without reading every file.
-
-**Raw pipeline** — `_raw/` at the brain root (outside any context) with three stages:
-`inbox/` (to be processed), `processing/` (in progress), `completed/` (done, reviewable).
-
-**Global operational directories** — device-local directories at the brain root:
-- `_inbox/` — items for the user to read (research output, reports)
-- `_outbox/` — items for the user to act on (draft messages, action items)
-- `_memory/` — conversation summaries, one file per project per day
-
-## Configuration
-
-```yaml
-brain:
-  dir: ~/.archie/brain
-  contexts:
-    shared: null                                    # local-only
-    work-acme: git@github.com:you/brain-acme.git    # cloned from remote
-    personal: git@github.com:you/brain-personal.git
+```bash
+ak init
 ```
 
-## Project Config
-
-Projects live in `<context>/projects/<name>/README.md` with YAML frontmatter for
-structured config and markdown body for context:
-
-```markdown
----
-name: My App
-summary: Core API service
-issues:
-  provider: linear
-  team: PLAT
-slack: true
----
-
-# My App
-
-Core API service...
-```
-
-`ak brain project` and `ak project --config` resolve project config by matching the
-current working directory name against project directories across all contexts.
+Prompts for user name and agent name. Creates the brain directory structure with a
+templated `BRAIN.md` convention guide, user profile skeleton, and agent operational
+files. Persists user/agent names in `~/.agent-kit/config.yaml`.
 
 ## Commands
 
-### `ak brain init [context]`
+### `ak brain search <term> [<term>...] [--limit N]`
 
-Initialise the brain or a specific context. Without arguments: creates `_raw/` pipeline
-dirs and initialises/clones all configured contexts (plus `shared` if not configured).
-With a context name: initialises just that one.
+Search across index metadata and file content. Multiple terms act as OR with scoring:
+- Filename/title match: +3
+- Tag match: +2
+- Body content match: +1
 
-```bash
-ak brain init                 # full setup
-ak brain init work-acme       # single context
-```
+Results ranked by match count then score.
 
-### `ak brain search <query>`
+### `ak brain index [--type <type>] [--slug <slug>]`
 
-Search across index metadata (name, tags, summary), file content, and conversation
-memory. Returns ranked results — name matches first, then tags, summary, content,
-and memory. Within the same rank, sorted by most recently modified.
+Query the brain index. Filter by entity type or lookup by slug.
 
-```bash
-ak brain search "aurora"                    # search everything
-ak brain search "aurora" --context shared   # limit to one context
-ak brain search "aurora" --limit 5          # fewer results
-```
+### `ak brain reindex`
 
-| Option | Description |
-|--------|-------------|
-| `--context NAME` | Limit search to a specific context |
-| `--limit N` | Maximum results (default: 20) |
+Rebuild `index.yaml` from filesystem contents. Scans `people/`, `projects/`,
+`knowledge/` for markdown and YAML files.
 
-### `ak brain index [context]`
+### `ak brain commit <message> [--paths <file> ...]`
 
-Query the brain index. Without a context, lists available contexts.
+Stage and commit changes. Use `--paths` to stage specific files (concurrent safety).
 
-```bash
-ak brain index                          # list contexts
-ak brain index shared                   # full index
-ak brain index shared --type projects   # filter by type
-ak brain index shared --slug my-app     # lookup by slug
-```
+### `ak brain ref <path>`
+
+Record a brain entry access for reference tracking. Stored in SQLite (`brain.db`).
+
+### `ak brain refs [--top N] [--stale --since Nd]`
+
+Query reference tracking data:
+- `--top N` — most referenced entries
+- `--stale --since 90d` — entries not referenced in N days
+
+### `ak brain status`
+
+Brain directory info and git status.
 
 ### `ak brain project [name]`
 
-Get project config. Without a name, infers from current working directory.
-
-```bash
-ak brain project my-app
-ak brain project              # infer from cwd
-```
-
-### `ak brain status [context]`
-
-Show brain status — raw pipeline state and git changes per context.
-
-```bash
-ak brain status               # all contexts + raw
-ak brain status shared        # single context
-```
-
-### `ak brain validate [context]`
-
-Validate structure and index integrity. Checks entity directories, index consistency,
-and git origins against config.
-
-```bash
-ak brain validate
-```
-
-### `ak brain reindex <context>`
-
-Rebuild `index.yaml` for a context from filesystem contents. Scans indexable entity
-directories (`contacts`, `projects`, `knowledge`, `goals`), extracts metadata from
-frontmatter, and merges with existing index. Existing curated entries whose paths
-still exist on disk are preserved.
-
-```bash
-ak brain reindex shared
-ak brain reindex work-acme
-```
-
-### `ak brain commit <context> -m <message> [--paths <file> ...]`
-
-Stage and commit changes in a context. Use `--paths` to stage specific files only
-(repeatable). Without `--paths`, stages all changes with `git add -A`.
-
-Prefer `--paths` when multiple agents may write concurrently — prevents one agent's
-commit from including another agent's uncommitted files.
-
-```bash
-ak brain commit shared -m "brain: add aurora knowledge" \
-  --paths knowledge/aurora-failover.md --paths index.yaml
-ak brain commit work-acme -m "brain: ingest meeting notes"
-```
-
-`reindex` acquires a per-context file lock internally to prevent concurrent
-corruption of `index.yaml`.
+Get project info from the brain. Looks for `projects/<name>/README.md` or
+`projects/<name>.md`. Infers project name from cwd if not given.
