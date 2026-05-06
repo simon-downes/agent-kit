@@ -66,6 +66,26 @@ def init(user: str, agent: str) -> None:
     (brain_dir / f"_{agent}" / "signals.yaml").write_text("")
     click.echo(f"  Created _{agent}/signals.yaml")
 
+    # Initialise database
+    import sqlite3
+
+    db = sqlite3.connect(brain_dir / "brain.db")
+    db.execute("CREATE TABLE IF NOT EXISTS refs (path TEXT NOT NULL, ts INTEGER NOT NULL)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_refs_path ON refs(path)")
+    db.execute("""CREATE TABLE IF NOT EXISTS provenance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_file TEXT NOT NULL,
+        ingested_at TEXT NOT NULL,
+        entities_created TEXT,
+        entities_updated TEXT
+    )""")
+    db.commit()
+    db.close()
+    click.echo("  Created brain.db")
+
+    # Gitignore for db and lock
+    (brain_dir / ".gitignore").write_text("brain.db\n.brain.lock\n")
+
     # Initialise git repo
     result = subprocess.run(
         ["git", "init"],

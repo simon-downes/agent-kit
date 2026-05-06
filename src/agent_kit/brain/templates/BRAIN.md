@@ -59,20 +59,15 @@ When ingesting from a source older than existing content, don't overwrite — cr
 note in `{{USER}}/inbox/` flagging the discrepancy for review. Newer information
 naturally supersedes older; just update the entry.
 
-### Sources
+### Provenance
 
-When ingesting external content, note the source in frontmatter:
+Source tracking is automatic during ingestion — stored in `brain.db` (gitignored).
+Query with sqlite:
 
-```yaml
----
-name: Entity Name
-summary: One-line description
-tags: [relevant, tags]
-source: meeting-notes-2026-05-01.md
----
+```bash
+sqlite3 brain.db "SELECT * FROM provenance ORDER BY ingested_at DESC LIMIT 10"
+sqlite3 brain.db "SELECT * FROM provenance WHERE source_file LIKE '%weekly%'"
 ```
-
-This enables tracing where information came from and assessing recency.
 
 ### Commit
 
