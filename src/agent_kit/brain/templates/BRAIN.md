@@ -55,8 +55,24 @@ tags: [relevant, tags]
 
 ### Conflict handling
 
-If new information contradicts an existing entry, don't silently overwrite. Create a
-note in `{{USER}}/inbox/` flagging the conflict for review.
+When ingesting from a source older than existing content, don't overwrite — create a
+note in `{{USER}}/inbox/` flagging the discrepancy for review. Newer information
+naturally supersedes older; just update the entry.
+
+### Sources
+
+When ingesting external content, note the source in frontmatter:
+
+```yaml
+---
+name: Entity Name
+summary: One-line description
+tags: [relevant, tags]
+source: meeting-notes-2026-05-01.md
+---
+```
+
+This enables tracing where information came from and assessing recency.
 
 ### Commit
 
@@ -72,8 +88,10 @@ uncommitted work. Always include `index.yaml` if you ran reindex.
 
 ## Reference tracking
 
+Record access when reading brain entries. Helps identify high-value vs stale content.
+
 ```bash
 ak brain ref <path>               # record an access
 ak brain refs --top 10            # most referenced
-ak brain refs --stale --since 90d # unreferenced (candidates for review)
+ak brain refs --stale --since 90d # unreferenced
 ```
