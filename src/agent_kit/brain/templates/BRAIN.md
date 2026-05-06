@@ -6,81 +6,74 @@
 
 | Directory | Purpose |
 |-----------|---------|
-| `_{{AGENT}}/` | {{AGENT}}'s operational state (memory, signals, soul, logs) |
-| `_inbox/` | Ingestion staging — files ready for processing |
+| `_{{AGENT}}/` | {{AGENT}}'s operational state (memory, signals, soul) |
+| `_inbox/` | Ingestion staging — files = ready, subdirs = bulk processing |
 | `{{USER}}/` | Personal space (profile, goals, journal, inbox) |
 | `people/` | Relationships and contacts |
 | `projects/` | Lightweight project context (not code docs) |
 | `knowledge/` | Durable reference knowledge grouped by domain |
 
-## Conventions
+## Reading
 
-### Where content belongs
+```bash
+ak brain search "term1" "term2"           # multi-term ranked search
+ak brain search "terraform" --limit 5     # limit results
+ak brain index                            # full index
+ak brain index --type people              # filter by type
+ak brain index --slug alice               # lookup by slug
+```
 
-- **Project architecture, decisions, code docs** → in the repo (docs/, ADRs)
-- **Personal goals, people, life context** → brain
-- **Agent operational state** → `_{{AGENT}}/`
-- **Project-specific context that isn't code** → `projects/<name>/`
+Search scores: filename/title +3, tags +2, body +1. Multiple terms boost rank.
 
-### Project directories
+## Writing
 
-Projects can have any internal structure but commonly include:
-- `context.md` — current focus, status, lightweight summary
-- `journal/` — dated entries, meeting notes, weekly updates
-- `decisions/` — key decisions with context and rationale
+### Before creating anything, check for duplicates:
+
+```bash
+ak brain search "<name or topic>"
+```
+
+If a match exists, update the existing file — merge new information, don't overwrite.
+
+### Frontmatter
+
+All brain files should have YAML frontmatter. These fields are used for indexing:
+
+```yaml
+---
+name: Entity Name
+summary: One-line description
+tags: [relevant, tags]
+---
+```
 
 ### File conventions
 
-- Use `[[wikilinks]]` for associative links: `[[people/jane]]`, `[[projects/tillo]]`
-- Frontmatter (optional): `date`, `tags`, `updated`
+- Use `[[wikilinks]]` for links between entries: `[[people/jane]]`, `[[projects/tillo]]`
 - One file per entity (person, project, topic)
+- Knowledge grouped by domain: `knowledge/<domain>/<topic>.md`
 
-### Ingestion
+### Conflict handling
 
-- Files directly in `_inbox/` are ready for processing
-- Subdirectories in `_inbox/` are staging areas for bulk/multi-step work
-- Processed files are removed from `_inbox/`
+If new information contradicts an existing entry, don't silently overwrite. Create a
+note in `{{USER}}/inbox/` flagging the conflict for review.
 
-## Interaction
-
-### Search
-
-```bash
-ak brain search "term1" "term2"
-ak brain search "terraform" "module" --limit 5
-```
-
-Multiple terms act as OR with scoring. Results ranked by:
-- Filename/title match: +3
-- Tag match: +2
-- Body content match: +1
-
-More terms matching the same file boost its rank.
-
-### Index
-
-```bash
-ak brain index                    # full index
-ak brain index --type people      # filter by entity type
-ak brain index --slug alice       # lookup specific entity
-```
-
-### Writing and committing
+### Commit
 
 After creating or modifying files:
 
 ```bash
 ak brain reindex
-ak brain commit "brain: <description>" --paths <file1> --paths <file2> --paths index.yaml
+ak brain commit "brain: <description>" --paths <file1> --paths index.yaml
 ```
 
-Use `--paths` to stage only the files you wrote — prevents sweeping up another
-session's uncommitted work. Always include `index.yaml` if you ran reindex.
+Use `--paths` to stage only files you wrote — prevents sweeping up another session's
+uncommitted work. Always include `index.yaml` if you ran reindex.
 
-### Reference tracking
+## Reference tracking
 
 ```bash
 ak brain ref <path>               # record an access
-ak brain refs --top 10            # most referenced entries
-ak brain refs --stale --since 90d # unreferenced entries
+ak brain refs --top 10            # most referenced
+ak brain refs --stale --since 90d # unreferenced (candidates for review)
 ```
