@@ -43,23 +43,44 @@ Projects can have any internal structure but commonly include:
 
 ## Interaction
 
-Search the brain:
+### Search
+
 ```bash
 ak brain search "term1" "term2"
+ak brain search "terraform" "module" --limit 5
 ```
 
-Record a reference (helps identify high-value entries):
+Multiple terms act as OR with scoring. Results ranked by:
+- Filename/title match: +3
+- Tag match: +2
+- Body content match: +1
+
+More terms matching the same file boost its rank.
+
+### Index
+
 ```bash
-ak brain ref <path>
+ak brain index                    # full index
+ak brain index --type people      # filter by entity type
+ak brain index --slug alice       # lookup specific entity
 ```
 
-Query references:
-```bash
-ak brain refs --top 10
-ak brain refs --stale --since 90d
-```
+### Writing and committing
 
-Reindex after manual changes:
+After creating or modifying files:
+
 ```bash
 ak brain reindex
+ak brain commit "brain: <description>" --paths <file1> --paths <file2> --paths index.yaml
+```
+
+Use `--paths` to stage only the files you wrote — prevents sweeping up another
+session's uncommitted work. Always include `index.yaml` if you ran reindex.
+
+### Reference tracking
+
+```bash
+ak brain ref <path>               # record an access
+ak brain refs --top 10            # most referenced entries
+ak brain refs --stale --since 90d # unreferenced entries
 ```
