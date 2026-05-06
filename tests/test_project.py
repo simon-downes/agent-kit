@@ -1,6 +1,6 @@
 """Tests for agent_kit.project."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from agent_kit.project import _parse_remote, _resolve_project_config, resolve_project
 

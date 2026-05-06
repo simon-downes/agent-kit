@@ -1,30 +1,13 @@
-"""Brain search operations — index matching, ripgrep integration."""
+"""Brain search operations — ripgrep integration."""
 
 import subprocess
 from pathlib import Path
-
-
-def _match_weight(terms: list[str], name: str, tags: list[str], summary: str) -> int | None:
-    """Return match weight (1-3) or None if no match."""
-    name_lower = name.lower()
-    tags_lower = [t.lower() for t in tags]
-    summary_lower = summary.lower()
-
-    if any(t in name_lower for t in terms):
-        return 1
-    if any(t in tags_lower for t in terms):
-        return 2
-    if any(t in summary_lower for t in terms):
-        return 3
-    return None
 
 
 def _rg_search(
     query: str,
     paths: list[str],
     brain_dir: Path,
-    *,
-    context_lines: int = 0,
 ) -> list[dict]:
     """Run rg and return deduplicated file-level results."""
     from agent_kit.brain.index import _file_mtime
@@ -35,8 +18,6 @@ def _rg_search(
         "-l",
         "--glob",
         "!.git",
-        "--glob",
-        "!_raw",
         "--glob",
         "!brain.db",
         "--glob",
@@ -67,10 +48,9 @@ def _rg_search(
             "modified": mtime,
         }
 
-        if context_lines >= 0:
-            excerpt = _rg_excerpt(query, str(filepath))
-            if excerpt:
-                entry["excerpt"] = excerpt
+        excerpt = _rg_excerpt(query, str(filepath))
+        if excerpt:
+            entry["excerpt"] = excerpt
 
         hits.append(entry)
 

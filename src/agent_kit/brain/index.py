@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-INDEXABLE_DIRS = ["contacts", "projects", "knowledge", "goals"]
+INDEXABLE_DIRS = ["people", "projects", "knowledge"]
 
 
 def _extract_metadata(path: Path) -> dict:
