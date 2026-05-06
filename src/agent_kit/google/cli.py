@@ -30,7 +30,7 @@ def _resolve_inbox() -> str:
 
     config = load_config()
     brain_dir = config.get("brain", {}).get("dir", "~/.archie/brain")
-    inbox = Path(brain_dir).expanduser() / "_raw" / "inbox"
+    inbox = Path(brain_dir).expanduser() / "_inbox"
     inbox.mkdir(parents=True, exist_ok=True)
     return str(inbox)
 

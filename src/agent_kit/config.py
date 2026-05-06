@@ -11,7 +11,6 @@ DEFAULT_CONFIG = {
     "project_dir": "~/dev",
     "brain": {
         "dir": "~/.archie/brain",
-        "contexts": {},
     },
     "auth": {
         "notion": {"type": "oauth"},
