@@ -1,92 +1,155 @@
-"""Tests for agent_kit.project.resolve_project_name."""
+"""Tests for agent_kit.project."""
 
 from unittest.mock import MagicMock, patch
 
-from agent_kit.project import resolve_project_name
+from agent_kit.project import _parse_remote, _resolve_project_config, resolve_project
 
 
-class TestResolveProjectName:
+class TestParseRemote:
+    def test_ssh(self):
+        org, repo = _parse_remote("git@github.com:my-org/my-repo.git")
+        assert org == "my-org"
+        assert repo == "my-repo"
+
+    def test_https(self):
+        org, repo = _parse_remote("https://github.com/my-org/my-repo.git")
+        assert org == "my-org"
+        assert repo == "my-repo"
+
+    def test_no_suffix(self):
+        org, repo = _parse_remote("https://github.com/my-org/my-repo")
+        assert org == "my-org"
+        assert repo == "my-repo"
+
+    def test_trailing_slash(self):
+        org, repo = _parse_remote("https://github.com/my-org/my-repo/")
+        assert org == "my-org"
+        assert repo == "my-repo"
+
+
+class TestResolveProjectConfig:
+    def test_empty_config(self):
+        result = _resolve_project_config("my-org", "my-repo", {})
+        assert result == {}
+
+    def test_defaults_only(self):
+        config = {"defaults": {"issues": None, "slack": None}}
+        result = _resolve_project_config("my-org", "my-repo", config)
+        assert result == {"issues": None, "slack": None}
+
+    def test_org_override(self):
+        config = {
+            "defaults": {"issues": None, "slack": None},
+            "my-org": {"issues": {"provider": "linear", "project": "PLAT"}},
+        }
+        result = _resolve_project_config("my-org", "my-repo", config)
+        assert result["issues"] == {"provider": "linear", "project": "PLAT"}
+        assert result["slack"] is None
+
+    def test_exact_repo_override(self):
+        config = {
+            "my-org": {"issues": {"provider": "linear", "project": "PLAT"}},
+            "my-org/my-repo": {"issues": {"provider": "github"}},
+        }
+        result = _resolve_project_config("my-org", "my-repo", config)
+        assert result["issues"] == {"provider": "github"}
+
+    def test_glob_match(self):
+        config = {
+            "defaults": {"issues": None},
+            "my-org/infra-*": {"issues": {"provider": "linear", "project": "INFRA"}},
+        }
+        result = _resolve_project_config("my-org", "infra-vpc", config)
+        assert result["issues"] == {"provider": "linear", "project": "INFRA"}
+
+    def test_glob_no_match(self):
+        config = {
+            "defaults": {"issues": None},
+            "my-org/infra-*": {"issues": {"provider": "linear", "project": "INFRA"}},
+        }
+        result = _resolve_project_config("my-org", "api-service", config)
+        assert result["issues"] is None
+
+    def test_exact_beats_glob(self):
+        config = {
+            "my-org/infra-*": {"issues": {"provider": "linear", "project": "INFRA"}},
+            "my-org/infra-special": {"issues": {"provider": "github"}},
+        }
+        result = _resolve_project_config("my-org", "infra-special", config)
+        assert result["issues"] == {"provider": "github"}
+
+    def test_no_org(self):
+        config = {
+            "defaults": {"issues": None, "slack": "#general"},
+            "my-org": {"issues": {"provider": "linear", "project": "PLAT"}},
+        }
+        result = _resolve_project_config(None, "my-repo", config)
+        assert result == {"issues": None, "slack": "#general"}
+
+
+class TestResolveProject:
     def test_project_dir_match(self, tmp_path):
-        """CWD under project_dir returns first subdirectory name."""
         project_dir = tmp_path / "dev"
         cwd = project_dir / "archie" / "src"
         cwd.mkdir(parents=True)
         config = {"project_dir": str(project_dir)}
-        with patch("agent_kit.project.Path.cwd", return_value=cwd):
-            name, source = resolve_project_name(config)
-        assert name == "archie"
-        assert source == "project_dir"
-
-    @patch("agent_kit.project.subprocess.run")
-    def test_git_remote_ssh(self, mock_run, tmp_path):
-        """Falls back to git remote when not under project_dir."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="git@github.com:user/my-repo.git\n")
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == "my-repo"
-        assert source == "git_remote"
-
-    @patch("agent_kit.project.subprocess.run")
-    def test_git_remote_https(self, mock_run, tmp_path):
-        """HTTPS remote URL is parsed correctly."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="https://github.com/user/my-repo.git\n"
-        )
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == "my-repo"
-        assert source == "git_remote"
-
-    @patch("agent_kit.project.subprocess.run")
-    def test_git_remote_no_suffix(self, mock_run, tmp_path):
-        """Remote URL without .git suffix."""
-        mock_run.return_value = MagicMock(
-            returncode=0, stdout="https://github.com/user/my-repo\n"
-        )
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == "my-repo"
-
-    @patch("agent_kit.project.subprocess.run")
-    def test_cwd_fallback(self, mock_run, tmp_path):
-        """Falls back to cwd name when git remote fails."""
-        mock_run.return_value = MagicMock(returncode=1, stdout="")
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == tmp_path.name
-        assert source == "cwd"
-
-    @patch("agent_kit.project.subprocess.run", side_effect=FileNotFoundError)
-    def test_git_not_installed(self, mock_run, tmp_path):
-        """Falls back to cwd when git is not installed."""
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == tmp_path.name
-        assert source == "cwd"
-
-    @patch("agent_kit.project.subprocess.run")
-    def test_git_remote_empty_name(self, mock_run, tmp_path):
-        """Empty repo name from remote falls through to cwd."""
-        mock_run.return_value = MagicMock(returncode=0, stdout="\n")
-        config = {"project_dir": str(tmp_path / "other")}
-        with patch("agent_kit.project.Path.cwd", return_value=tmp_path):
-            name, source = resolve_project_name(config)
-        assert name == tmp_path.name
-        assert source == "cwd"
-
-    def test_project_dir_root(self, tmp_path):
-        """CWD is exactly project_dir (no subdirectory) falls through."""
-        config = {"project_dir": str(tmp_path)}
         with (
-            patch("agent_kit.project.Path.cwd", return_value=tmp_path),
-            patch("agent_kit.project.subprocess.run") as mock_run,
+            patch("agent_kit.project.Path.cwd", return_value=cwd),
+            patch("agent_kit.project._get_remote", return_value=None),
+            patch("agent_kit.project._load_projects_config", return_value={}),
         ):
-            mock_run.return_value = MagicMock(returncode=1, stdout="")
-            name, source = resolve_project_name(config)
-        # relative_to succeeds but parts[0] raises IndexError → falls through
-        assert source in ("git_remote", "cwd")
+            result = resolve_project(config)
+        assert result["name"] == "archie"
+        assert result["org"] is None
+        assert result["source"] == "local"
+
+    def test_with_remote(self, tmp_path):
+        project_dir = tmp_path / "dev"
+        cwd = project_dir / "my-repo"
+        cwd.mkdir(parents=True)
+        config = {"project_dir": str(project_dir)}
+        with (
+            patch("agent_kit.project.Path.cwd", return_value=cwd),
+            patch(
+                "agent_kit.project._get_remote",
+                return_value="git@github.com:my-org/my-repo.git",
+            ),
+            patch("agent_kit.project._load_projects_config", return_value={}),
+        ):
+            result = resolve_project(config)
+        assert result["name"] == "my-repo"
+        assert result["org"] == "my-org"
+        assert result["source"] == "git@github.com:my-org/my-repo.git"
+
+    def test_config_resolved(self, tmp_path):
+        project_dir = tmp_path / "dev"
+        cwd = project_dir / "my-repo"
+        cwd.mkdir(parents=True)
+        config = {"project_dir": str(project_dir)}
+        projects_config = {"my-org": {"issues": {"provider": "linear", "project": "PLAT"}}}
+        with (
+            patch("agent_kit.project.Path.cwd", return_value=cwd),
+            patch(
+                "agent_kit.project._get_remote",
+                return_value="git@github.com:my-org/my-repo.git",
+            ),
+            patch("agent_kit.project._load_projects_config", return_value=projects_config),
+        ):
+            result = resolve_project(config)
+        assert result["issues"] == {"provider": "linear", "project": "PLAT"}
+
+    def test_no_remote_no_config(self, tmp_path):
+        project_dir = tmp_path / "dev"
+        cwd = project_dir / "new-project"
+        cwd.mkdir(parents=True)
+        config = {"project_dir": str(project_dir)}
+        with (
+            patch("agent_kit.project.Path.cwd", return_value=cwd),
+            patch("agent_kit.project._get_remote", return_value=None),
+            patch("agent_kit.project._load_projects_config", return_value={}),
+        ):
+            result = resolve_project(config)
+        assert result["name"] == "new-project"
+        assert result["org"] is None
+        assert result["issues"] is None
+        assert result["slack"] is None

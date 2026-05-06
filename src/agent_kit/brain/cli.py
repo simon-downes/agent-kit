@@ -121,9 +121,10 @@ def commit(context: str, message: str, paths: tuple[str, ...]) -> None:
 def project(name: str | None) -> None:
     """Get project config from the brain."""
     if not name:
-        from agent_kit.project import resolve_project_name
+        from agent_kit.project import resolve_project
 
-        name, _ = resolve_project_name(load_config())
+        info = resolve_project(load_config())
+        name = info["name"]
 
     client = _get_client()
     result = client.find_project(name)
