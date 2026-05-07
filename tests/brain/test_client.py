@@ -291,3 +291,105 @@ class TestSlugToName:
 
     def test_underscores(self):
         assert _slug_to_name("bob_jones") == "Bob Jones"
+
+
+# --- memory indexing and age decay ---
+
+
+class TestMemoryIndexing:
+    @patch("fcntl.flock")
+    def test_reindex_includes_memory(self, mock_flock, tmp_path):
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "2026-05-01-archie.md").write_text(
+            "---\nname: Archie session\nsummary: Worked on brain\ntags: [archie]\n---\nContent"
+        )
+        result = BrainClient(tmp_path).reindex()
+        assert "memory" in result
+        assert "2026-05-01-archie" in result["memory"]
+        assert result["memory"]["2026-05-01-archie"]["name"] == "Archie session"
+
+    def test_search_includes_memory_dir(self, tmp_path):
+        """Memory dir is included in rg search paths even though _archie is excluded."""
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        (tmp_path / "people").mkdir()
+        idx = {"memory": {"2026-05-01-archie": {
+            "name": "Archie session",
+            "path": "_archie/memory/2026-05-01-archie.md",
+            "summary": "brain work",
+            "tags": ["archie"],
+        }}}
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        with patch("agent_kit.brain.search._rg_search", return_value=[]) as mock_rg:
+            BrainClient(tmp_path).search(["archie"])
+            # Verify _archie/memory was in the search paths
+            call_args = mock_rg.call_args[0]
+            search_paths = call_args[1]
+            assert any("_archie/memory" in p for p in search_paths)
+
+
+class TestMemoryAgeDecay:
+    def _make_memory_index(self, tmp_path, filename):
+        slug = filename.replace(".md", "")
+        idx = {"memory": {slug: {
+            "name": "Session notes",
+            "path": f"_archie/memory/{filename}",
+            "summary": "worked on things",
+            "tags": ["archie"],
+        }}}
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True, exist_ok=True)
+        return idx
+
+    def test_recent_memory_boosted(self, tmp_path):
+        from datetime import date, timedelta
+
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        filename = f"{yesterday}-work.md"
+        self._make_memory_index(tmp_path, filename)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["archie"])
+        # Tag match (2) + age boost (2) = 4
+        assert results[0]["score"] == 4
+
+    def test_old_memory_penalised(self, tmp_path):
+        from datetime import date, timedelta
+
+        old_date = (date.today() - timedelta(days=120)).isoformat()
+        filename = f"{old_date}-work.md"
+        self._make_memory_index(tmp_path, filename)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["archie"])
+        # Tag match (2) + age penalty (-1) = 1
+        assert results[0]["score"] == 1
+
+    def test_mid_age_memory_small_boost(self, tmp_path):
+        from datetime import date, timedelta
+
+        mid_date = (date.today() - timedelta(days=14)).isoformat()
+        filename = f"{mid_date}-work.md"
+        self._make_memory_index(tmp_path, filename)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["archie"])
+        # Tag match (2) + age boost (1) = 3
+        assert results[0]["score"] == 3
+
+    def test_no_date_in_filename_neutral(self, tmp_path):
+        self._make_memory_index(tmp_path, "random-notes.md")
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["archie"])
+        # Tag match (2) + no age modifier = 2
+        assert results[0]["score"] == 2
+
+    def test_type_memory_filter(self, tmp_path):
+        idx = {
+            "people": {"alice": {"name": "Alice", "path": "people/alice.md"}},
+            "memory": {"2026-05-01-test": {"name": "Test", "path": "_archie/memory/2026-05-01-test.md"}},
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        client = BrainClient(tmp_path)
+        result = client.query_index(idx, entity_type="memory")
+        assert "memory" in result
+        assert "people" not in result

@@ -14,8 +14,11 @@ name, summary, tags, and path.
 **Indexable directories** — `people/`, `projects/`, `knowledge/`. Content in these
 directories is indexed by `ak brain reindex`.
 
-**Ingestion** — `_inbox/` at the brain root. Files directly in `_inbox/` are ready for
-processing. Subdirectories are staging areas for bulk work.
+**Ingestion** — `_raw/` at the brain root. Files placed here await processing into
+brain entities via the `action-brain-ingest` skill.
+
+**Attention queue** — `_inbox/` at the brain root. Items needing user review
+(conflicts, decisions, flagged discrepancies).
 
 ## Setup
 

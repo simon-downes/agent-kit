@@ -7,8 +7,9 @@
 | Directory | Purpose |
 |-----------|---------|
 | `_{{AGENT}}/` | {{AGENT}}'s operational state (memory, signals, soul) |
-| `_inbox/` | Ingestion staging — files = ready, subdirs = bulk processing |
-| `{{USER}}/` | Personal space (profile, goals, journal, inbox) |
+| `_raw/` | Ingestion staging — files here await processing into brain entities |
+| `_inbox/` | Items needing {{USER}}'s attention (conflicts, decisions, flagged items) |
+| `{{USER}}/` | Personal space (profile, goals, journal) |
 | `people/` | Relationships and contacts |
 | `projects/` | Lightweight project context (not code docs) |
 | `knowledge/` | Durable reference knowledge grouped by domain |
@@ -56,7 +57,7 @@ tags: [relevant, tags]
 ### Conflict handling
 
 When ingesting from a source older than existing content, don't overwrite — create a
-note in `{{USER}}/inbox/` flagging the discrepancy for review. Newer information
+note in `_inbox/` flagging the discrepancy for review. Newer information
 naturally supersedes older; just update the entry.
 
 ### Provenance

@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 # Directories excluded from search and indexing
-EXCLUDED_DIRS = {"_inbox", ".git"}
+EXCLUDED_DIRS = {"_raw", "_archie", ".git"}
 
 
 @contextmanager
@@ -35,6 +35,9 @@ class BrainClient:
 
     def search(self, terms: list[str], *, limit: int = 10) -> list[dict]:
         """Search brain with multiple terms, return ranked results."""
+        import re
+        from datetime import date, datetime
+
         from agent_kit.brain.index import _file_mtime
         from agent_kit.brain.search import _rg_search
 
@@ -77,10 +80,13 @@ class BrainClient:
 
         # Phase 2: Content search via rg
         search_paths = [
-            str(d)
-            for d in self._brain_dir.iterdir()
-            if d.is_dir() and d.name not in EXCLUDED_DIRS
+            str(d) for d in self._brain_dir.iterdir() if d.is_dir() and d.name not in EXCLUDED_DIRS
         ]
+        # Include _archie/memory/ explicitly (excluded from general iterdir walk)
+        memory_dir = self._brain_dir / "_archie" / "memory"
+        if memory_dir.is_dir():
+            search_paths.append(str(memory_dir))
+
         if search_paths:
             for term in terms:
                 hits = _rg_search(term, search_paths, self._brain_dir)
@@ -98,6 +104,27 @@ class BrainClient:
                     results[path]["matches"] += 1
                     if hit.get("excerpt") and "excerpt" not in results[path]:
                         results[path]["excerpt"] = hit["excerpt"]
+
+        # Phase 3: Age decay for memory results
+        today = date.today()
+        date_re = re.compile(r"(\d{4}-\d{2}-\d{2})")
+        for result in results.values():
+            if result.get("type") != "memory":
+                continue
+            match = date_re.search(result["path"])
+            if not match:
+                continue
+            try:
+                file_date = datetime.strptime(match.group(1), "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            age_days = (today - file_date).days
+            if age_days < 7:
+                result["score"] += 2
+            elif age_days < 30:
+                result["score"] += 1
+            elif age_days > 90:
+                result["score"] -= 1
 
         ranked = sorted(results.values(), key=lambda r: (-r["matches"], -r["score"]))
         return ranked[:limit]
@@ -180,12 +207,8 @@ class BrainClient:
         """Get or create the brain SQLite database."""
         db_path = self._brain_dir / "brain.db"
         db = sqlite3.connect(db_path)
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS refs (path TEXT NOT NULL, ts INTEGER NOT NULL)"
-        )
-        db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_refs_path ON refs(path)"
-        )
+        db.execute("CREATE TABLE IF NOT EXISTS refs (path TEXT NOT NULL, ts INTEGER NOT NULL)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_refs_path ON refs(path)")
         return db
 
     # --- Status ---

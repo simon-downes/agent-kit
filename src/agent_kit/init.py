@@ -40,6 +40,7 @@ def init(user: str, agent: str) -> None:
     dirs = [
         brain_dir / f"_{agent}",
         brain_dir / f"_{agent}" / "memory",
+        brain_dir / "_raw",
         brain_dir / "_inbox",
         brain_dir / user,
         brain_dir / "people",
