@@ -24,15 +24,15 @@ def _get_client():
     return GoogleClient(creds)
 
 
-def _resolve_inbox() -> str:
-    """Resolve the brain raw inbox path from config."""
+def _resolve_raw_dir() -> str:
+    """Resolve the brain raw ingestion directory from config."""
     from pathlib import Path
 
     config = load_config()
     brain_dir = config.get("brain", {}).get("dir", "~/.archie/brain")
-    inbox = Path(brain_dir).expanduser() / "_inbox"
-    inbox.mkdir(parents=True, exist_ok=True)
-    return str(inbox)
+    raw_dir = Path(brain_dir).expanduser() / "_raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    return str(raw_dir)
 
 
 @click.group()
@@ -80,7 +80,7 @@ def unread(limit: int) -> None:
 @mail.command("read")
 @click.argument("message_id")
 @click.option("--stdout", "to_stdout", is_flag=True, help="Output body to stdout instead of file")
-@click.option("--to-inbox", "to_inbox", is_flag=True, help="Write to brain raw inbox")
+@click.option("--to-inbox", "to_inbox", is_flag=True, help="Write to brain raw ingestion directory")
 @click.option("--output", "output_dir", help="Output directory")
 @handle_errors
 def read_cmd(message_id: str, to_stdout: bool, to_inbox: bool, output_dir: str | None) -> None:
@@ -96,7 +96,7 @@ def read_cmd(message_id: str, to_stdout: bool, to_inbox: bool, output_dir: str |
         return
 
     if to_inbox:
-        out = Path(_resolve_inbox())
+        out = Path(_resolve_raw_dir())
     elif output_dir:
         out = Path(output_dir)
     else:
@@ -184,7 +184,7 @@ def list_cmd(folder_id: str | None, limit: int) -> None:
 @drive.command()
 @click.argument("file_id")
 @click.option("--stdout", "to_stdout", is_flag=True, help="Output content to stdout")
-@click.option("--to-inbox", "to_inbox", is_flag=True, help="Write to brain raw inbox")
+@click.option("--to-inbox", "to_inbox", is_flag=True, help="Write to brain raw ingestion directory")
 @click.option("--output", "output_dir", help="Output directory")
 @click.option("--format", "fmt", help="Export format (html, pdf, csv, text)")
 @handle_errors
@@ -202,7 +202,7 @@ def fetch(
         return
 
     if to_inbox:
-        out = Path(_resolve_inbox())
+        out = Path(_resolve_raw_dir())
     elif output_dir:
         out = Path(output_dir)
     else:

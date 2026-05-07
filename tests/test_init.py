@@ -25,6 +25,7 @@ class TestInitCommand:
         assert (tmp_path / "_archie").is_dir()
         assert (tmp_path / "_archie" / "memory").is_dir()
         assert (tmp_path / "_inbox").is_dir()
+        assert (tmp_path / "_raw").is_dir()
         assert (tmp_path / "simon").is_dir()
         assert (tmp_path / "people").is_dir()
         assert (tmp_path / "projects").is_dir()

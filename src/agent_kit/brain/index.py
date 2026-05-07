@@ -4,7 +4,12 @@ from pathlib import Path
 
 import yaml
 
-INDEXABLE_DIRS = ["people", "projects", "knowledge"]
+INDEXABLE_DIRS = {
+    "people": "people",
+    "projects": "projects",
+    "knowledge": "knowledge",
+    "memory": "_archie/memory",
+}
 
 
 def _extract_metadata(path: Path) -> dict:
@@ -93,8 +98,8 @@ def reindex(context_path: Path, lock_fn) -> dict:
 
         index: dict[str, dict] = {}
 
-        for entity_type in INDEXABLE_DIRS:
-            entity_dir = context_path / entity_type
+        for entity_type, rel_path in INDEXABLE_DIRS.items():
+            entity_dir = context_path / rel_path
             if not entity_dir.exists():
                 continue
 
