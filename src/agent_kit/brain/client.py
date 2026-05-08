@@ -61,7 +61,7 @@ class BrainClient:
                     score = 0
                     if t in name.lower() or t in slug.lower():
                         score = 3
-                    elif any(t in tag.lower() for tag in tags):
+                    elif any(t in str(tag).lower() for tag in tags):
                         score = 2
                     elif t in summary.lower():
                         score = 1
