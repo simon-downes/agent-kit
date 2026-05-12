@@ -5,6 +5,7 @@ import click
 from agent_kit import __version__
 from agent_kit.auth.cli import auth
 from agent_kit.brain.cli import brain
+from agent_kit.digest.cli import digest
 from agent_kit.google.cli import google
 from agent_kit.init import init
 from agent_kit.jira.cli import jira
@@ -22,6 +23,7 @@ def main() -> None:
 
 main.add_command(auth)
 main.add_command(brain)
+main.add_command(digest)
 main.add_command(google)
 main.add_command(init)
 main.add_command(jira)
