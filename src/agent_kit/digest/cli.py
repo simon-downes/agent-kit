@@ -14,13 +14,14 @@ def _get_client(output_dir: str | None = None) -> DigestClient:
     """Construct DigestClient from config."""
     config = load_config()
     sessions_dir = Path("~/.kiro/sessions/cli").expanduser()
+    sqlite_path = Path("~/.local/share/kiro-cli/data.sqlite3").expanduser()
     if output_dir:
         out = Path(output_dir)
     else:
         brain_dir = Path(config.get("brain", {}).get("dir", "~/.archie/brain")).expanduser()
         agent = config.get("agent", "archie")
         out = brain_dir / f"_{agent}" / "logs"
-    return DigestClient(sessions_dir, out)
+    return DigestClient(sessions_dir, out, sqlite_path=sqlite_path)
 
 
 @click.command()
