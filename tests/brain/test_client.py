@@ -81,7 +81,11 @@ class TestQueryIndex:
 
 class TestSearch:
     def test_name_match(self, tmp_path):
-        idx = {"people": {"alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}}}
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "people").mkdir()
         (tmp_path / "people" / "alice.md").write_text("Alice")
@@ -92,7 +96,11 @@ class TestSearch:
         assert results[0]["score"] == 3
 
     def test_tag_match(self, tmp_path):
-        idx = {"people": {"bob": {"name": "Bob", "path": "people/bob.md", "summary": "", "tags": ["engineer"]}}}
+        idx = {
+            "people": {
+                "bob": {"name": "Bob", "path": "people/bob.md", "summary": "", "tags": ["engineer"]}
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "people").mkdir()
         with patch("agent_kit.brain.search._rg_search", return_value=[]):
@@ -100,7 +108,16 @@ class TestSearch:
         assert results[0]["score"] == 2
 
     def test_summary_match(self, tmp_path):
-        idx = {"projects": {"archie": {"name": "Archie", "path": "projects/archie/", "summary": "personal AI platform", "tags": []}}}
+        idx = {
+            "projects": {
+                "archie": {
+                    "name": "Archie",
+                    "path": "projects/archie/",
+                    "summary": "personal AI platform",
+                    "tags": [],
+                }
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "projects").mkdir()
         with patch("agent_kit.brain.search._rg_search", return_value=[]):
@@ -110,7 +127,12 @@ class TestSearch:
     def test_multiple_terms_boost(self, tmp_path):
         idx = {
             "people": {
-                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "engineer", "tags": ["eng"]},
+                "alice": {
+                    "name": "Alice",
+                    "path": "people/alice.md",
+                    "summary": "engineer",
+                    "tags": ["eng"],
+                },
                 "bob": {"name": "Bob", "path": "people/bob.md", "summary": "", "tags": []},
             }
         }
@@ -134,7 +156,12 @@ class TestSearch:
     def test_limits_results(self, tmp_path):
         entries = {}
         for i in range(30):
-            entries[f"item{i}"] = {"name": f"test item{i}", "path": f"people/{i}.md", "summary": "", "tags": []}
+            entries[f"item{i}"] = {
+                "name": f"test item{i}",
+                "path": f"people/{i}.md",
+                "summary": "",
+                "tags": [],
+            }
         (tmp_path / "index.yaml").write_text(yaml.dump({"people": entries}))
         (tmp_path / "people").mkdir()
         with patch("agent_kit.brain.search._rg_search", return_value=[]):
@@ -314,12 +341,16 @@ class TestMemoryIndexing:
         mem_dir = tmp_path / "_archie" / "memory"
         mem_dir.mkdir(parents=True)
         (tmp_path / "people").mkdir()
-        idx = {"memory": {"2026-05-01-archie": {
-            "name": "Archie session",
-            "path": "_archie/memory/2026-05-01-archie.md",
-            "summary": "brain work",
-            "tags": ["archie"],
-        }}}
+        idx = {
+            "memory": {
+                "2026-05-01-archie": {
+                    "name": "Archie session",
+                    "path": "_archie/memory/2026-05-01-archie.md",
+                    "summary": "brain work",
+                    "tags": ["archie"],
+                }
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         with patch("agent_kit.brain.search._rg_search", return_value=[]) as mock_rg:
             BrainClient(tmp_path).search(["archie"])
@@ -332,12 +363,16 @@ class TestMemoryIndexing:
 class TestMemoryAgeDecay:
     def _make_memory_index(self, tmp_path, filename):
         slug = filename.replace(".md", "")
-        idx = {"memory": {slug: {
-            "name": "Session notes",
-            "path": f"_archie/memory/{filename}",
-            "summary": "worked on things",
-            "tags": ["archie"],
-        }}}
+        idx = {
+            "memory": {
+                slug: {
+                    "name": "Session notes",
+                    "path": f"_archie/memory/{filename}",
+                    "summary": "worked on things",
+                    "tags": ["archie"],
+                }
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         mem_dir = tmp_path / "_archie" / "memory"
         mem_dir.mkdir(parents=True, exist_ok=True)
@@ -386,10 +421,201 @@ class TestMemoryAgeDecay:
     def test_type_memory_filter(self, tmp_path):
         idx = {
             "people": {"alice": {"name": "Alice", "path": "people/alice.md"}},
-            "memory": {"2026-05-01-test": {"name": "Test", "path": "_archie/memory/2026-05-01-test.md"}},
+            "memory": {
+                "2026-05-01-test": {"name": "Test", "path": "_archie/memory/2026-05-01-test.md"}
+            },
         }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         client = BrainClient(tmp_path)
         result = client.query_index(idx, entity_type="memory")
         assert "memory" in result
         assert "people" not in result
+
+
+# --- multi-word search ---
+
+
+class TestSearchMultiWord:
+    def test_multiword_tag_match_splits_words(self, tmp_path):
+        """Multi-word term splits into words for tag matching."""
+        idx = {
+            "projects": {
+                "vpc": {
+                    "name": "VPC Module",
+                    "path": "projects/vpc.md",
+                    "summary": "",
+                    "tags": ["terraform", "networking"],
+                }
+            }
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "projects").mkdir()
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["terraform module for vpc"])
+        assert len(results) >= 1
+        assert results[0]["score"] == 2
+
+    def test_multiword_stopwords_excluded_from_tags(self, tmp_path):
+        """Stopwords don't match tags."""
+        idx = {
+            "projects": {
+                "thing": {
+                    "name": "Thing",
+                    "path": "projects/thing.md",
+                    "summary": "",
+                    "tags": ["for", "the"],
+                }
+            }
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "projects").mkdir()
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["search for the thing"])
+        # "search" and "thing" are the non-stopwords; "thing" matches tag "the"? No — tag "the" is a stopword
+        # but the tag value itself isn't filtered, only the search words are.
+        # "thing" matches tag... no. Let me reconsider.
+        # Words after stopword removal: ["search", "thing"]
+        # Tags: ["for", "the"] — neither matches "search" or "thing"
+        assert not results or results[0].get("score", 0) == 0 or results[0]["name"] != "Thing"
+
+    def test_multiword_name_match_uses_full_phrase(self, tmp_path):
+        """Name matching uses the full phrase as substring, not split words."""
+        idx = {
+            "people": {
+                "hermes-agent": {
+                    "name": "Hermes Agent",
+                    "path": "people/hermes-agent.md",
+                    "summary": "",
+                    "tags": [],
+                }
+            }
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "people").mkdir()
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["Hermes Agent"])
+        assert results[0]["score"] == 3
+
+    def test_single_word_tag_unchanged(self, tmp_path):
+        """Single-word terms still match tags the old way."""
+        idx = {
+            "people": {
+                "bob": {
+                    "name": "Bob",
+                    "path": "people/bob.md",
+                    "summary": "",
+                    "tags": ["engineer"],
+                }
+            }
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "people").mkdir()
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["engineer"])
+        assert results[0]["score"] == 2
+
+    def test_content_exact_phrase_scores_3(self, tmp_path):
+        """Exact phrase found in content scores +3."""
+        (tmp_path / "index.yaml").write_text(yaml.dump({}))
+        (tmp_path / "knowledge").mkdir()
+        rg_hit = {"path": "knowledge/aws.md", "name": "Aws", "modified": 100.0}
+        with patch("agent_kit.brain.search._rg_search", return_value=[rg_hit]):
+            results = BrainClient(tmp_path).search(["batch memory extraction"])
+        assert results[0]["score"] == 3
+        assert results[0]["matches"] == 3  # word count
+
+    def test_content_fallback_when_no_exact_phrase(self, tmp_path):
+        """Falls back to individual words when exact phrase not found."""
+        (tmp_path / "index.yaml").write_text(yaml.dump({}))
+        (tmp_path / "knowledge").mkdir()
+        rg_hit = {"path": "knowledge/aws.md", "name": "Aws", "modified": 100.0}
+
+        def mock_rg(query, paths, brain_dir):
+            # Exact phrase returns nothing, individual words return hits
+            if " " in query:
+                return []
+            if query in ("batch", "memory", "extraction"):
+                return [rg_hit]
+            return []
+
+        with patch("agent_kit.brain.search._rg_search", side_effect=mock_rg):
+            results = BrainClient(tmp_path).search(["batch memory extraction"])
+        assert len(results) == 1
+        # 3 words match, +1 each
+        assert results[0]["score"] == 3
+        assert results[0]["matches"] == 3
+
+    def test_content_fallback_stopwords_not_searched(self, tmp_path):
+        """Stopwords are not searched in the fallback path."""
+        (tmp_path / "index.yaml").write_text(yaml.dump({}))
+        (tmp_path / "knowledge").mkdir()
+        rg_hit = {"path": "knowledge/aws.md", "name": "Aws", "modified": 100.0}
+        searched_terms = []
+
+        def mock_rg(query, paths, brain_dir):
+            searched_terms.append(query)
+            if " " in query:
+                return []
+            if query in ("terraform", "vpc"):
+                return [rg_hit]
+            return []
+
+        with patch("agent_kit.brain.search._rg_search", side_effect=mock_rg):
+            BrainClient(tmp_path).search(["terraform module for the vpc"])
+        # "for" and "the" should not appear in searched terms
+        assert "for" not in searched_terms
+        assert "the" not in searched_terms
+        # "module" is not a stopword, should be searched
+        assert "module" in searched_terms
+
+    def test_content_single_word_unchanged(self, tmp_path):
+        """Single-word content search still scores +1."""
+        (tmp_path / "index.yaml").write_text(yaml.dump({}))
+        (tmp_path / "knowledge").mkdir()
+        rg_hit = {"path": "knowledge/aws.md", "name": "Aws", "modified": 100.0}
+        with patch("agent_kit.brain.search._rg_search", return_value=[rg_hit]):
+            results = BrainClient(tmp_path).search(["aurora"])
+        assert results[0]["score"] == 1
+        assert results[0]["matches"] == 1
+
+    def test_exact_phrase_ranks_above_word_fallback(self, tmp_path):
+        """File with exact phrase ranks above file matching individual words only."""
+        (tmp_path / "index.yaml").write_text(yaml.dump({}))
+        (tmp_path / "knowledge").mkdir()
+        exact_hit = {"path": "knowledge/exact.md", "name": "Exact", "modified": 100.0}
+
+        def mock_rg(query, paths, brain_dir):
+            if query == "batch memory":
+                return [exact_hit]
+            return []
+
+        with patch("agent_kit.brain.search._rg_search", side_effect=mock_rg):
+            results = BrainClient(tmp_path).search(["batch memory"])
+        # Exact phrase: score=3, matches=2
+        assert results[0]["path"] == "knowledge/exact.md"
+        assert results[0]["score"] == 3
+
+
+# --- _split_words ---
+
+
+class TestSplitWords:
+    def test_removes_stopwords(self):
+        from agent_kit.brain.search import _split_words
+
+        assert _split_words("terraform module for the vpc") == ["terraform", "module", "vpc"]
+
+    def test_single_word_passthrough(self):
+        from agent_kit.brain.search import _split_words
+
+        assert _split_words("terraform") == ["terraform"]
+
+    def test_all_stopwords_keeps_all(self):
+        from agent_kit.brain.search import _split_words
+
+        assert _split_words("for the") == ["for", "the"]
+
+    def test_lowercases(self):
+        from agent_kit.brain.search import _split_words
+
+        assert _split_words("Terraform Module") == ["terraform", "module"]

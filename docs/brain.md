@@ -39,7 +39,16 @@ Search across index metadata and file content. Multiple terms act as OR with sco
 - Tag match: +2
 - Body content match: +1
 
-Results ranked by match count then score.
+Results ranked by match count then score. Files matching more terms rank higher.
+
+Multi-word terms (e.g. `"hermes agent"`) try exact phrase first, fall back to individual
+word matching if no exact hit. Stopwords are removed during word-level matching.
+
+**Search effectively:**
+- Use short keywords, not sentences: `"terraform" "vpc"` not `"what is the terraform vpc module"`
+- Separate arguments for independent concepts — each is an independent OR term
+- Multi-word phrases are fine for known names: `"hermes agent"`, `"batch memory"`
+- When results are empty, go broader (fewer/shorter terms), not more specific
 
 ### `ak brain index [--type <type>] [--slug <slug>]`
 

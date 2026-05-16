@@ -39,7 +39,7 @@ class BrainClient:
         from datetime import date, datetime
 
         from agent_kit.brain.index import _file_mtime
-        from agent_kit.brain.search import _rg_search
+        from agent_kit.brain.search import _rg_search, _split_words
 
         results: dict[str, dict] = {}
 
@@ -61,6 +61,12 @@ class BrainClient:
                     score = 0
                     if t in name.lower() or t in slug.lower():
                         score = 3
+                    elif " " in term:
+                        words = _split_words(term)
+                        if any(w in str(tag).lower() for tag in tags for w in words):
+                            score = 2
+                        elif t in summary.lower():
+                            score = 1
                     elif any(t in str(tag).lower() for tag in tags):
                         score = 2
                     elif t in summary.lower():
@@ -89,21 +95,61 @@ class BrainClient:
 
         if search_paths:
             for term in terms:
-                hits = _rg_search(term, search_paths, self._brain_dir)
-                for hit in hits:
-                    path = hit["path"]
-                    if path not in results:
-                        results[path] = {
-                            "path": path,
-                            "name": hit.get("name", ""),
-                            "score": 0,
-                            "matches": 0,
-                            "modified": hit.get("modified"),
-                        }
-                    results[path]["score"] += 1
-                    results[path]["matches"] += 1
-                    if hit.get("excerpt") and "excerpt" not in results[path]:
-                        results[path]["excerpt"] = hit["excerpt"]
+                if " " in term:
+                    # Multi-word: try exact phrase first
+                    hits = _rg_search(term, search_paths, self._brain_dir)
+                    if hits:
+                        words = _split_words(term)
+                        for hit in hits:
+                            path = hit["path"]
+                            if path not in results:
+                                results[path] = {
+                                    "path": path,
+                                    "name": hit.get("name", ""),
+                                    "score": 0,
+                                    "matches": 0,
+                                    "modified": hit.get("modified"),
+                                }
+                            results[path]["score"] += 3
+                            results[path]["matches"] += len(words)
+                            if hit.get("excerpt") and "excerpt" not in results[path]:
+                                results[path]["excerpt"] = hit["excerpt"]
+                    else:
+                        # Fallback: search individual words (stopwords removed)
+                        words = _split_words(term)
+                        for word in words:
+                            word_hits = _rg_search(word, search_paths, self._brain_dir)
+                            for hit in word_hits:
+                                path = hit["path"]
+                                if path not in results:
+                                    results[path] = {
+                                        "path": path,
+                                        "name": hit.get("name", ""),
+                                        "score": 0,
+                                        "matches": 0,
+                                        "modified": hit.get("modified"),
+                                    }
+                                results[path]["score"] += 1
+                                results[path]["matches"] += 1
+                                if hit.get("excerpt") and "excerpt" not in results[path]:
+                                    results[path]["excerpt"] = hit["excerpt"]
+                else:
+                    # Single word: unchanged
+                    hits = _rg_search(term, search_paths, self._brain_dir)
+                    for hit in hits:
+                        path = hit["path"]
+                        if path not in results:
+                            results[path] = {
+                                "path": path,
+                                "name": hit.get("name", ""),
+                                "score": 0,
+                                "matches": 0,
+                                "modified": hit.get("modified"),
+                            }
+                        results[path]["score"] += 1
+                        results[path]["matches"] += 1
+                        if hit.get("excerpt") and "excerpt" not in results[path]:
+                            results[path]["excerpt"] = hit["excerpt"]
 
         # Phase 3: Age decay for memory results
         today = date.today()

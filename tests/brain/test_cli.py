@@ -70,7 +70,11 @@ class TestIndexCommand:
 class TestSearchCommand:
     def test_search_single_term(self, cli_runner, tmp_path):
         _setup_brain(tmp_path)
-        idx = {"people": {"alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}}}
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            }
+        }
         (tmp_path / "index.yaml").write_text(yaml.dump(idx))
         (tmp_path / "people" / "alice.md").write_text("Alice is a developer")
         with patch("agent_kit.brain.search._rg_search", return_value=[]):
@@ -84,7 +88,12 @@ class TestSearchCommand:
         _setup_brain(tmp_path)
         idx = {
             "people": {
-                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "developer", "tags": ["eng"]},
+                "alice": {
+                    "name": "Alice",
+                    "path": "people/alice.md",
+                    "summary": "developer",
+                    "tags": ["eng"],
+                },
                 "bob": {"name": "Bob", "path": "people/bob.md", "summary": "manager", "tags": []},
             }
         }

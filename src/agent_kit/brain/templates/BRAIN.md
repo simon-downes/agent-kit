@@ -25,6 +25,15 @@ ak brain index --slug alice               # lookup by slug
 ```
 
 Search scores: filename/title +3, tags +2, body +1. Multiple terms boost rank.
+Results are OR — a file matching any term appears, but files matching more terms rank higher.
+
+**Search effectively:**
+- Use short keywords, not sentences: `"terraform" "vpc"` not `"what is the terraform vpc module"`
+- Separate arguments for independent concepts: `ak brain search "alice" "platform"` finds
+  files mentioning either, ranks files with both highest
+- Multi-word phrases try exact match first, fall back to individual words — so
+  `"hermes agent"` finds the exact phrase or files containing both words
+- When results are empty, go broader (fewer/shorter terms), not more specific
 
 ## Writing
 

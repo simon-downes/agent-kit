@@ -3,6 +3,62 @@
 import subprocess
 from pathlib import Path
 
+STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "of",
+        "with",
+        "by",
+        "from",
+        "is",
+        "it",
+        "as",
+        "be",
+        "was",
+        "are",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "can",
+        "this",
+        "that",
+        "these",
+        "those",
+        "not",
+        "no",
+        "so",
+        "if",
+        "then",
+    }
+)
+
+
+def _split_words(term: str) -> list[str]:
+    """Split a multi-word term into individual words with stopwords removed."""
+    words = [w for w in term.lower().split() if w not in STOPWORDS]
+    return words if words else term.lower().split()
+
 
 def _rg_search(
     query: str,
