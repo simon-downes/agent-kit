@@ -619,3 +619,151 @@ class TestSplitWords:
         from agent_kit.brain.search import _split_words
 
         assert _split_words("Terraform Module") == ["terraform", "module"]
+
+
+# --- read_file ---
+
+
+class TestReadFile:
+    def test_reads_file(self, tmp_path):
+        (tmp_path / "people").mkdir()
+        (tmp_path / "people" / "alice.md").write_text("# Alice\nContent here")
+        content = BrainClient(tmp_path).read_file("people/alice.md")
+        assert content == "# Alice\nContent here"
+
+    def test_reads_memory_file(self, tmp_path):
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "2026-05-01-archie.md").write_text("memory content")
+        content = BrainClient(tmp_path).read_file("_archie/memory/2026-05-01-archie.md")
+        assert content == "memory content"
+
+    def test_not_found_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="file not found"):
+            BrainClient(tmp_path).read_file("nonexistent.md")
+
+    def test_path_traversal_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="path escapes brain directory"):
+            BrainClient(tmp_path).read_file("../../etc/passwd")
+
+
+# --- recent_memories ---
+
+
+class TestRecentMemories:
+    def _setup_memories(self, tmp_path):
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "2026-05-29-apps-4208.md").write_text(
+            "---\nname: Apps session\nsummary: Did stuff\ntags: [apps]\n---\nApps content"
+        )
+        (mem_dir / "2026-05-28-archie-1234.md").write_text(
+            "---\nname: Archie session\nsummary: Platform work\ntags: [archie]\n---\nArchie content"
+        )
+        (mem_dir / "2026-05-27-apps-5678.md").write_text(
+            "---\nname: Older apps\nsummary: More stuff\ntags: [apps]\n---\nOlder content"
+        )
+        return mem_dir
+
+    def test_returns_most_recent(self, tmp_path):
+        self._setup_memories(tmp_path)
+        entries = BrainClient(tmp_path).recent_memories(limit=2)
+        assert len(entries) == 2
+        assert "2026-05-29" in entries[0]["path"]
+        assert "2026-05-28" in entries[1]["path"]
+
+    def test_filters_by_project(self, tmp_path):
+        self._setup_memories(tmp_path)
+        entries = BrainClient(tmp_path).recent_memories(project="apps", limit=5)
+        assert len(entries) == 2
+        assert all("apps" in e["path"] for e in entries)
+
+    def test_project_filter_case_insensitive(self, tmp_path):
+        self._setup_memories(tmp_path)
+        entries = BrainClient(tmp_path).recent_memories(project="Apps", limit=5)
+        assert len(entries) == 2
+
+    def test_includes_content(self, tmp_path):
+        self._setup_memories(tmp_path)
+        entries = BrainClient(tmp_path).recent_memories(project="archie", limit=1)
+        assert "Archie content" in entries[0]["content"]
+
+    def test_empty_when_no_memory_dir(self, tmp_path):
+        assert BrainClient(tmp_path).recent_memories() == []
+
+    def test_respects_limit(self, tmp_path):
+        self._setup_memories(tmp_path)
+        entries = BrainClient(tmp_path).recent_memories(limit=1)
+        assert len(entries) == 1
+
+
+# --- search with --type filter ---
+
+
+class TestSearchTypeFilter:
+    def test_filters_by_type(self, tmp_path):
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            },
+            "memory": {
+                "2026-05-01-test": {
+                    "name": "Test session",
+                    "path": "_archie/memory/2026-05-01-test.md",
+                    "summary": "alice helped",
+                    "tags": [],
+                }
+            },
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "people").mkdir()
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["alice"], entity_type="people")
+        assert all(r.get("type") == "people" for r in results)
+        assert len(results) == 1
+
+    def test_type_filter_memory(self, tmp_path):
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            },
+            "memory": {
+                "2026-05-01-alice": {
+                    "name": "Alice session",
+                    "path": "_archie/memory/2026-05-01-alice.md",
+                    "summary": "",
+                    "tags": ["alice"],
+                }
+            },
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "people").mkdir()
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["alice"], entity_type="memory")
+        assert all(r.get("type") == "memory" for r in results)
+
+    def test_no_type_filter_returns_all(self, tmp_path):
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            },
+            "memory": {
+                "2026-05-01-alice": {
+                    "name": "Alice session",
+                    "path": "_archie/memory/2026-05-01-alice.md",
+                    "summary": "",
+                    "tags": ["alice"],
+                }
+            },
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        (tmp_path / "people").mkdir()
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            results = BrainClient(tmp_path).search(["alice"])
+        assert len(results) == 2

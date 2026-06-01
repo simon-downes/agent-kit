@@ -187,3 +187,82 @@ class TestStatusCommand:
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert "dir" in data
+
+
+class TestReadCommand:
+    def test_reads_file(self, cli_runner, tmp_path):
+        _setup_brain(tmp_path)
+        (tmp_path / "people" / "alice.md").write_text("# Alice\nSome content")
+        result = cli_runner.invoke(brain, ["read", "people/alice.md"])
+        assert result.exit_code == 0
+        assert "# Alice" in result.output
+        assert "Some content" in result.output
+
+    def test_not_found(self, cli_runner, tmp_path):
+        _setup_brain(tmp_path)
+        result = cli_runner.invoke(brain, ["read", "nonexistent.md"])
+        assert result.exit_code != 0
+
+    def test_path_traversal(self, cli_runner, tmp_path):
+        _setup_brain(tmp_path)
+        result = cli_runner.invoke(brain, ["read", "../../etc/passwd"])
+        assert result.exit_code != 0
+
+
+class TestMemoryCommand:
+    def _setup_memories(self, tmp_path):
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        (mem_dir / "2026-05-29-apps-4208.md").write_text(
+            "---\nname: Apps session\nsummary: Did stuff\ntags: [apps]\n---\nApps content"
+        )
+        (mem_dir / "2026-05-28-archie-1234.md").write_text(
+            "---\nname: Archie session\nsummary: Platform\ntags: [archie]\n---\nArchie content"
+        )
+
+    def test_returns_recent(self, cli_runner, tmp_path):
+        self._setup_memories(tmp_path)
+        result = cli_runner.invoke(brain, ["memory"])
+        assert result.exit_code == 0
+        assert "Apps session" in result.output
+        assert "Archie session" in result.output
+
+    def test_filters_by_project(self, cli_runner, tmp_path):
+        self._setup_memories(tmp_path)
+        result = cli_runner.invoke(brain, ["memory", "--project", "apps"])
+        assert result.exit_code == 0
+        assert "Apps session" in result.output
+        assert "Archie session" not in result.output
+
+    def test_respects_limit(self, cli_runner, tmp_path):
+        self._setup_memories(tmp_path)
+        result = cli_runner.invoke(brain, ["memory", "--limit", "1"])
+        assert result.exit_code == 0
+        assert "Apps session" in result.output
+        assert "Archie session" not in result.output
+
+
+class TestSearchTypeFilter:
+    def test_search_with_type_filter(self, cli_runner, tmp_path):
+        _setup_brain(tmp_path)
+        idx = {
+            "people": {
+                "alice": {"name": "Alice", "path": "people/alice.md", "summary": "", "tags": []}
+            },
+            "memory": {
+                "2026-05-01-alice": {
+                    "name": "Alice session",
+                    "path": "_archie/memory/2026-05-01-alice.md",
+                    "summary": "",
+                    "tags": ["alice"],
+                }
+            },
+        }
+        (tmp_path / "index.yaml").write_text(yaml.dump(idx))
+        mem_dir = tmp_path / "_archie" / "memory"
+        mem_dir.mkdir(parents=True)
+        with patch("agent_kit.brain.search._rg_search", return_value=[]):
+            result = cli_runner.invoke(brain, ["search", "alice", "--type", "people"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert all(r.get("type") == "people" for r in data)

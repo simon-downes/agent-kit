@@ -31,12 +31,13 @@ def index(entity_type: str | None, slug: str | None) -> None:
 
 @brain.command()
 @click.argument("terms", nargs=-1, required=True)
+@click.option("--type", "entity_type", help="Filter results by entity type")
 @click.option("--limit", default=10, help="Maximum results")
 @handle_errors
-def search(terms: tuple[str, ...], limit: int) -> None:
+def search(terms: tuple[str, ...], entity_type: str | None, limit: int) -> None:
     """Search the brain with one or more terms."""
     client = _get_client()
-    results = client.search(list(terms), limit=limit)
+    results = client.search(list(terms), limit=limit, entity_type=entity_type)
     output(results)
 
 
@@ -47,6 +48,30 @@ def reindex() -> None:
     client = _get_client()
     idx = client.reindex()
     output(idx)
+
+
+@brain.command()
+@click.argument("path")
+@handle_errors
+def read(path: str) -> None:
+    """Read a brain file by relative path."""
+    client = _get_client()
+    content = client.read_file(path)
+    print(content)
+
+
+@brain.command()
+@click.option("--project", help="Filter by project name (matched against tags)")
+@click.option("--limit", default=2, help="Number of memory files to return")
+@handle_errors
+def memory(project: str | None, limit: int) -> None:
+    """Read recent memory files, optionally filtered by project."""
+    client = _get_client()
+    entries = client.recent_memories(project=project, limit=limit)
+    for entry in entries:
+        print(f"--- {entry['path']} ({entry['name']}) ---")
+        print(entry["content"])
+        print()
 
 
 @brain.command()

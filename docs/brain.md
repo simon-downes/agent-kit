@@ -32,7 +32,7 @@ files. Persists user/agent names in `~/.agent-kit/config.yaml`.
 
 ## Commands
 
-### `ak brain search <term> [<term>...] [--limit N]`
+### `ak brain search <term> [<term>...] [--type <type>] [--limit N]`
 
 Search across index metadata and file content. Multiple terms act as OR with scoring:
 - Filename/title match: +3
@@ -44,6 +44,9 @@ Results ranked by match count then score. Files matching more terms rank higher.
 Multi-word terms (e.g. `"hermes agent"`) try exact phrase first, fall back to individual
 word matching if no exact hit. Stopwords are removed during word-level matching.
 
+Use `--type` to filter results by entity type (e.g. `memory`, `people`, `projects`,
+`knowledge`).
+
 **Search effectively:**
 - Use short keywords, not sentences: `"terraform" "vpc"` not `"what is the terraform vpc module"`
 - Separate arguments for independent concepts — each is an independent OR term
@@ -53,6 +56,29 @@ word matching if no exact hit. Stopwords are removed during word-level matching.
 ### `ak brain index [--type <type>] [--slug <slug>]`
 
 Query the brain index. Filter by entity type or lookup by slug.
+
+### `ak brain read <path>`
+
+Read a brain file by its relative path (as returned by search results). Outputs the
+file content to stdout.
+
+```bash
+ak brain read "_archie/memory/2026-05-29-apps-4208.md"
+ak brain read "people/alice.md"
+```
+
+### `ak brain memory [--project <name>] [--limit N]`
+
+Read recent memory files. Returns the most recent N memory files (default 2), optionally
+filtered by project tag.
+
+```bash
+ak brain memory                        # last 2 memories
+ak brain memory --project apps         # last 2 for project "apps"
+ak brain memory --project archie --limit 5
+```
+
+Output includes file path, name, and full content for each entry.
 
 ### `ak brain reindex`
 

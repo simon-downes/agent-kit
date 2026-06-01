@@ -33,7 +33,9 @@ class BrainClient:
 
     # --- Search ---
 
-    def search(self, terms: list[str], *, limit: int = 10) -> list[dict]:
+    def search(
+        self, terms: list[str], *, limit: int = 10, entity_type: str | None = None
+    ) -> list[dict]:
         """Search brain with multiple terms, return ranked results."""
         import re
         from datetime import date, datetime
@@ -45,7 +47,7 @@ class BrainClient:
 
         # Phase 1: Index search
         index = self.load_index()
-        for entity_type, entries in index.items():
+        for idx_type, entries in index.items():
             if not isinstance(entries, dict):
                 continue
             for slug, entry in entries.items():
@@ -78,7 +80,7 @@ class BrainClient:
                                 "name": name,
                                 "score": 0,
                                 "matches": 0,
-                                "type": entity_type,
+                                "type": idx_type,
                                 "modified": _file_mtime(self._brain_dir / path),
                             }
                         results[path]["score"] += score
@@ -173,7 +175,52 @@ class BrainClient:
                 result["score"] -= 1
 
         ranked = sorted(results.values(), key=lambda r: (-r["matches"], -r["score"]))
+        if entity_type:
+            ranked = [r for r in ranked if r.get("type") == entity_type]
         return ranked[:limit]
+
+    # --- Read ---
+
+    def read_file(self, path: str) -> str:
+        """Read a brain file by relative path."""
+        filepath = self._brain_dir / path
+        # Prevent path traversal outside brain
+        try:
+            filepath.resolve().relative_to(self._brain_dir.resolve())
+        except ValueError:
+            raise ValueError(f"path escapes brain directory: {path}")
+        if not filepath.exists():
+            raise ValueError(f"file not found: {path}")
+        return filepath.read_text()
+
+    def recent_memories(self, *, project: str | None = None, limit: int = 2) -> list[dict]:
+        """Return recent memory files, optionally filtered by project tag."""
+        from agent_kit.brain.index import _parse_frontmatter
+
+        memory_dir = self._brain_dir / "_archie" / "memory"
+        if not memory_dir.is_dir():
+            return []
+
+        files = sorted(memory_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
+
+        entries: list[dict] = []
+        for f in files:
+            if len(entries) >= limit:
+                break
+            meta = _parse_frontmatter(f)
+            if project:
+                tags = [str(t).lower() for t in meta.get("tags", [])]
+                if project.lower() not in tags:
+                    continue
+            entries.append(
+                {
+                    "path": str(f.relative_to(self._brain_dir)),
+                    "name": meta.get("name", f.stem),
+                    "content": f.read_text(),
+                }
+            )
+
+        return entries
 
     # --- Index ---
 
