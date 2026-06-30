@@ -43,23 +43,39 @@ def set_cmd(service: str, fields: tuple[str, ...]) -> None:
 
 @auth.command(name="import")
 @click.argument("service")
-@click.argument("env_vars", nargs=-1, required=True)
+@click.argument("env_vars", nargs=-1)
+@click.option("--json", "from_json", is_flag=True, help="Read JSON object from stdin")
 @handle_errors
-def import_cmd(service: str, env_vars: tuple[str, ...]) -> None:
-    """Import credentials from environment variables.
+def import_cmd(service: str, env_vars: tuple[str, ...], from_json: bool) -> None:
+    """Import credentials from environment variables or JSON.
 
     Field names are lowercased env var names with optional service prefix stripped.
+    With --json, reads a JSON object from stdin and maps keys to fields.
     """
-    missing = [v for v in env_vars if v not in os.environ]
-    if missing:
-        raise ValueError(f"missing environment variables: {', '.join(missing)}")
+    if from_json:
+        import json
 
-    for var in env_vars:
-        field = var.lower()
+        data = json.loads(sys.stdin.read())
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object")
         prefix = f"{service.lower()}_"
-        if field.startswith(prefix):
-            field = field[len(prefix) :]
-        set_field(service, field, os.environ[var])
+        for key, value in data.items():
+            field = key.lower()
+            if field.startswith(prefix):
+                field = field[len(prefix) :]
+            set_field(service, field, str(value))
+    else:
+        if not env_vars:
+            raise ValueError("specify environment variable names or use --json")
+        missing = [v for v in env_vars if v not in os.environ]
+        if missing:
+            raise ValueError(f"missing environment variables: {', '.join(missing)}")
+        for var in env_vars:
+            field = var.lower()
+            prefix = f"{service.lower()}_"
+            if field.startswith(prefix):
+                field = field[len(prefix) :]
+            set_field(service, field, os.environ[var])
 
     print("OK")
 
